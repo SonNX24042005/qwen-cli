@@ -1,0 +1,17 @@
+{
+  "name": "qwen-chat-cli",
+  "version": "1.0.0",
+  "description": "A minimalist terminal CLI client for Qwen Chat Web using Playwright fetch hook.",
+  "main": "src/cli.js",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node scripts/test_cli.js",
+    "debug": "node scripts/debug_page.js"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "dotenv": "^16.4.5"
+  }
+}
