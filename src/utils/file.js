@@ -35,11 +35,26 @@ function getFilesRecursively(dirPath) {
         results = results.concat(getFilesRecursively(fullPath));
       } else {
         const ext = path.extname(fullPath).toLowerCase();
+        const base = path.basename(fullPath).toLowerCase();
         const validExts = [
-          '.js', '.jsx', '.ts', '.tsx', '.json', '.md', '.txt', '.html', 
-          '.css', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.png', '.jpg', '.jpeg'
+          // Code / Scripts
+          '.js', '.jsx', '.ts', '.tsx', '.py', '.pyw', '.sh', '.bat', '.cmd', '.ps1', 
+          '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.kt', '.java', '.gradle',
+          '.sql', '.rb', '.pl', '.pm', '.php',
+          
+          // Data / Configuration / Logs
+          '.json', '.json5', '.yaml', '.yml', '.toml', '.xml', '.ini', '.conf', '.cfg',
+          '.csv', '.tsv', '.log', '.txt',
+          
+          // Documents / Markup
+          '.md', '.html', '.xhtml', '.css', '.pdf', '.doc', '.docx', '.xls', '.xlsx', 
+          '.ppt', '.pptx',
+          
+          // Images
+          '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'
         ];
-        if (validExts.includes(ext)) {
+        
+        if (validExts.includes(ext) || base.includes('tfevents')) {
           results.push(fullPath);
         }
       }

@@ -478,7 +478,7 @@ function formatUserPromptBlock(text, cols) {
   for (let line of lines) {
     let startIdx = 0;
     while (startIdx < line.length || (startIdx === 0 && line.length === 0)) {
-      const chunkLimit = isFirstLine ? (contentWidth - prefix.length) : contentWidth;
+      const chunkLimit = contentWidth - prefix.length;
       const chunk = line.slice(startIdx, startIdx + chunkLimit);
       startIdx += chunkLimit;
       
@@ -521,25 +521,25 @@ function setupTerminalInput(onSendMessage, onResumeChat) {
 
     // 2. Phím cuộn trang PageUp/PageDown và Mũi tên Lên/Xuống
     if (key && key.name === 'pageup' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible) {
-      screen.setScrollOffset(screen.getScrollOffset() + 5);
+      screen.setScrollOffset(screen.getScrollOffset() + 12);
       screen.refreshScrollRegion();
       renderUI();
       return;
     }
     if (key && key.name === 'pagedown' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible) {
-      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 5));
+      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 12));
       screen.refreshScrollRegion();
       renderUI();
       return;
     }
     if (key && key.name === 'up' && !autocompleteVisible && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && inputBuffer === '') {
-      screen.setScrollOffset(screen.getScrollOffset() + 1);
+      screen.setScrollOffset(screen.getScrollOffset() + 3);
       screen.refreshScrollRegion();
       renderUI();
       return;
     }
     if (key && key.name === 'down' && !autocompleteVisible && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && inputBuffer === '') {
-      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 1));
+      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 3));
       screen.refreshScrollRegion();
       renderUI();
       return;

@@ -10,6 +10,12 @@ let scrollOffset = 0;
 let renderUICallback = () => {};
 let promptLinesCount = 1;
 
+let resizeCallback = null;
+
+function setResizeCallback(cb) {
+  resizeCallback = cb;
+}
+
 let thinkingSpinnerInterval = null;
 let thinkingSpinnerIndex = 0;
 let hasThinkingSpinner = false;
@@ -160,7 +166,11 @@ function initTUI() {
   process.stdout.on('resize', () => {
     const r = process.stdout.rows || 24;
     process.stdout.write(`\x1b[1;${r - 1 - promptLinesCount}r`);
-    refreshScrollRegion();
+    if (resizeCallback) {
+      resizeCallback();
+    } else {
+      refreshScrollRegion();
+    }
     renderUICallback();
   });
 }
@@ -191,5 +201,6 @@ module.exports = {
   setScrollContentBuffer: (val) => { scrollContentBuffer = val; },
   setPromptLinesCount,
   startThinkingSpinner,
-  stopThinkingSpinner
+  stopThinkingSpinner,
+  setResizeCallback
 };

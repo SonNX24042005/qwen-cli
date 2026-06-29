@@ -6,6 +6,97 @@ const path = require('path');
 const fs = require('fs');
 const { Marked } = require('marked');
 const { markedTerminal } = require('marked-terminal');
+const Renderer = require('marked-terminal').default || require('marked-terminal');
+const supportsHyperlinks = require('supports-hyperlinks');
+const ansiEscapes = require('ansi-escapes');
+
+function wrapAnsiText(text, width) {
+  const lines = text.split('\n');
+  const reflowed = [];
+  const ansiRegex = /\u001b\[[0-9;]*m|\u001b\]8;[^;]*;[^\u0007]*\u0007|\u001b\]8;;\u0007/g;
+  
+  lines.forEach((line) => {
+    const cleanLine = line.replace(ansiRegex, '');
+    if (cleanLine.length <= width) {
+      reflowed.push(line);
+      return;
+    }
+    
+    const tokens = line.split(/([ \t]+)/);
+    let currentLine = '';
+    let currentLength = 0;
+    
+    for (const token of tokens) {
+      if (!token) continue;
+      
+      const cleanToken = token.replace(ansiRegex, '');
+      const cleanLen = cleanToken.length;
+      
+      if (currentLength + cleanLen > width) {
+        if (currentLength === 0) {
+          currentLine += token;
+          currentLength += cleanLen;
+        } else {
+          reflowed.push(currentLine.trimEnd());
+          const trimmedToken = token.trimStart();
+          const trimmedClean = trimmedToken.replace(ansiRegex, '');
+          currentLine = trimmedToken;
+          currentLength = trimmedClean.length;
+        }
+      } else {
+        currentLine += token;
+        currentLength += cleanLen;
+      }
+    }
+    
+    if (currentLine) {
+      reflowed.push(currentLine.trimEnd());
+    }
+  });
+  
+  return reflowed.join('\n');
+}
+
+// Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal
+const originalListItem = Renderer.prototype.listitem;
+Renderer.prototype.listitem = function(item) {
+  const rendered = originalListItem.call(this, item);
+  
+  const width = this.o.width || 80;
+  const tabLen = this.tab ? this.tab.length : 4;
+  
+  let prefix = '';
+  let content = rendered;
+  
+  const markerMatch = rendered.match(/^(\n*)([ *0-9.\-\t]*)(.*)/s);
+  if (markerMatch) {
+    prefix = markerMatch[1] + markerMatch[2];
+    content = markerMatch[3];
+  }
+  
+  const prefixLen = prefix.replace(/\n/g, '').length;
+  const targetWrapWidth = Math.max(30, width - tabLen - prefixLen);
+  const wrappedContent = wrapAnsiText(content, targetWrapWidth);
+  
+  return prefix + wrappedContent;
+};
+
+// Ghi đè Renderer.prototype.link để tránh tự động nối tiếp URL thô trong ngoặc đơn nếu terminal không hỗ trợ hyperlink
+Renderer.prototype.link = function(href, title, text) {
+  if (typeof href === 'object') {
+    title = href.title;
+    text = this.parser.parseInline(href.tokens);
+    href = href.href;
+  }
+  
+  if (supportsHyperlinks.stdout) {
+    const linkText = text ? this.o.href(this.emoji(text)) : this.o.href(href);
+    return this.o.link(ansiEscapes.link(linkText, href.replace(/\+/g, '%20')));
+  } else {
+    // Chỉ hiển thị phần text (ví dụ: tên miền baomoi.com đã được rút gọn) trong terminal
+    return this.o.link(this.o.href(this.emoji(text || href)));
+  }
+};
 
 const driver = require('./driver');
 const fileUtils = require('./utils/file');
@@ -15,41 +106,50 @@ const editor = require('./tui/editor');
 
 const chalkInstance = require('chalk').default || require('chalk');
 
-const extension = markedTerminal({
-  showSectionPrefix: false, // Tắt hiển thị ký tự # trước tiêu đề
-  firstHeading: chalkInstance.white.bold.underline,
-  heading: chalkInstance.white.bold,
-  code: chalkInstance.hex('#c9d1d9'),
-  codespan: chalkInstance.cyan,
-  link: chalkInstance.hex('#58a6ff'),
-  href: chalkInstance.hex('#58a6ff').underline,
-  blockquote: chalkInstance.gray.italic,
-  tableOptions: {
-    chars: {
-      'top': '─', 'top-mid': '┬', 'top-left': '┌', 'top-right': '┐',
-      'bottom': '─', 'bottom-mid': '┴', 'bottom-left': '└', 'bottom-right': '┘',
-      'left': '│', 'left-mid': '├',
-      'mid': '─', 'mid-mid': '┼',
-      'right': '│', 'right-mid': '┤',
-      'middle': '│'
-    },
-    style: {
-      head: ['white', 'bold'],
-      border: ['gray']
+function renderMarkdown(text, cols) {
+  const extension = markedTerminal({
+    reflowText: true,
+    width: Math.max(40, cols - 4), // Trừ đi lề để hiển thị đẹp hơn
+    showSectionPrefix: false, // Tắt hiển thị ký tự # trước tiêu đề
+    firstHeading: chalkInstance.white.bold.underline,
+    heading: chalkInstance.white.bold,
+    code: chalkInstance.hex('#c9d1d9'),
+    codespan: chalkInstance.cyan,
+    link: chalkInstance.hex('#58a6ff'),
+    href: chalkInstance.hex('#58a6ff').underline,
+    blockquote: chalkInstance.gray.italic,
+    tableOptions: {
+      chars: {
+        'top': '─', 'top-mid': '┬', 'top-left': '┌', 'top-right': '┐',
+        'bottom': '─', 'bottom-mid': '┴', 'bottom-left': '└', 'bottom-right': '┘',
+        'left': '│', 'left-mid': '├',
+        'mid': '─', 'mid-mid': '┼',
+        'right': '│', 'right-mid': '┤',
+        'middle': '│'
+      },
+      style: {
+        head: ['white', 'bold'],
+        border: ['gray']
+      }
     }
-  }
-});
+  });
 
-// Sửa lỗi marked v15 không bôi đậm được văn bản nằm trong thẻ text
-const originalText = extension.renderer.text;
-extension.renderer.text = function(token) {
-  if (token && typeof token === 'object' && token.tokens) {
-    return this.parser.parseInline(token.tokens);
-  }
-  return originalText.call(this, token);
-};
+  // Sửa lỗi marked v15 không bôi đậm được văn bản nằm trong thẻ text
+  const originalText = extension.renderer.text;
+  extension.renderer.text = function(token) {
+    if (token && typeof token === 'object' && token.tokens) {
+      return this.parser.parseInline(token.tokens);
+    }
+    return originalText.call(this, token);
+  };
 
-const marked = new Marked(extension);
+  const markedInstance = new Marked(extension);
+  try {
+    return markedInstance.parse(text).trimEnd();
+  } catch (err) {
+    return text;
+  }
+}
 
 let sseState = {
   currentResponseText: '',
@@ -63,26 +163,119 @@ let sseState = {
 let currentHistoryPage = 1;
 let currentHistoryItems = [];
 
-// Thay thế các ký hiệu [[N]] thành liên kết Markdown [[N] domain](url)
+// Thay thế các ký hiệu [[N]] và [N] thành liên kết Markdown
 function replaceCitations(text, docs) {
-  return text.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
-    const idx = parseInt(numStr, 10) - 1;
-    if (docs && Array.isArray(docs) && docs[idx]) {
-      const doc = docs[idx];
+  if (!text) return text;
+
+  // 1. Phân tích danh sách tài liệu tham khảo ở cuối văn bản (nếu có)
+  // Định dạng thường gặp ở cuối: [21] Author... http://url hoặc [21] http://url
+  const bibMap = {};
+  const bibLineRegex = /^\s*\[(\d+)\]\s+(.+)$/gm;
+  let match;
+  bibLineRegex.lastIndex = 0;
+  while ((match = bibLineRegex.exec(text)) !== null) {
+    const num = parseInt(match[1], 10);
+    const content = match[2];
+    const urlMatch = content.match(/(https?:\/\/[^\s\)\],"`]+)/);
+    if (urlMatch) {
+      let url = urlMatch[1];
+      if (url.endsWith('.') || url.endsWith(',')) {
+        url = url.slice(0, -1);
+      }
       let domain = '';
       try {
-        domain = new URL(doc.url).hostname;
+        domain = new URL(url).hostname;
       } catch (e) {
-        const m = doc.url.match(/https?:\/\/([^\/]+)/);
+        const m = url.match(/https?:\/\/([^\/]+)/);
         domain = m ? m[1] : 'link';
       }
       if (domain.startsWith('www.')) domain = domain.slice(4);
-      
+      bibMap[num] = { url, domain };
+    }
+  }
+
+  const getDomain = (url) => {
+    let domain = '';
+    try {
+      domain = new URL(url).hostname;
+    } catch (e) {
+      const m = url.match(/https?:\/\/([^\/]+)/);
+      domain = m ? m[1] : 'link';
+    }
+    if (domain.startsWith('www.')) domain = domain.slice(4);
+    return domain;
+  };
+
+  // 2. Thay thế các ký hiệu [[N]] (ngoặc kép)
+  text = text.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
+    const num = parseInt(numStr, 10);
+    if (bibMap[num]) {
+      return `[[${numStr}] ${bibMap[num].domain}](${bibMap[num].url})`;
+    }
+    const idx = num - 1;
+    if (docs && Array.isArray(docs) && docs[idx]) {
+      const doc = docs[idx];
+      const domain = getDomain(doc.url);
       return `[[${numStr}] ${domain}](${doc.url})`;
     }
-    // Nếu không có tài liệu cụ thể tương ứng, chuẩn hóa thành [N] cho giống chú thích GitHub
     return `[${numStr}]`;
   });
+
+  // 3. Thay thế các ký hiệu [N] (ngoặc đơn)
+  // Sử dụng lookbehind và lookahead nâng cao để tránh khớp nhầm code hoặc link Markdown có sẵn hoặc các dấu ngoặc kép vừa replace
+  text = text.replace(/(?<!\w|\[)\[(\d+)\](?!\(|\[)/g, (match, numStr) => {
+    const num = parseInt(numStr, 10);
+    if (bibMap[num]) {
+      return `[[${numStr}] ${bibMap[num].domain}](${bibMap[num].url})`;
+    }
+    const idx = num - 1;
+    if (docs && Array.isArray(docs) && docs[idx]) {
+      const doc = docs[idx];
+      const domain = getDomain(doc.url);
+      return `[[${numStr}] ${domain}](${doc.url})`;
+    }
+    return match;
+  });
+
+  // 4. Thay thế các link URL thô còn lại thành link rút gọn chỉ hiển thị tên miền
+  text = text.replace(/(?<!\(|\[)https?:\/\/[^\s\)\],"`]+/g, (url) => {
+    let cleanUrl = url;
+    if (cleanUrl.endsWith('.') || cleanUrl.endsWith(',')) {
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+    let domain = '';
+    try {
+      domain = new URL(cleanUrl).hostname;
+    } catch (e) {
+      const m = cleanUrl.match(/https?:\/\/([^\/]+)/);
+      domain = m ? m[1] : 'link';
+    }
+    if (domain.startsWith('www.')) domain = domain.slice(4);
+    return `[${domain}](${cleanUrl})`;
+  });
+
+  return text;
+}
+
+let chatHistory = [];
+
+function rebuildScrollBuffer() {
+  const cols = process.stdout.columns || 80;
+  let formattedHistory = '';
+  
+  chatHistory.forEach((msg) => {
+    if (msg.role === 'user') {
+      const userBlock = editor.formatUserPromptBlock(msg.content, cols);
+      formattedHistory += '\n' + userBlock + '\n';
+    } else if (msg.role === 'assistant') {
+      const parsedCitations = replaceCitations(msg.content, msg.docs);
+      const renderedMarkdown = renderMarkdown(parsedCitations, cols);
+      formattedHistory += `\n\x1b[1m[AI]:\x1b[0m ${renderedMarkdown}\n`;
+    }
+  });
+
+  screen.setScrollContentBuffer(formattedHistory);
+  screen.refreshScrollRegion();
 }
 
 // Biến Promise dùng để đồng bộ hóa hàng đợi gửi tin nhắn
@@ -366,6 +559,10 @@ async function handleUserMessage(inputText) {
   const searchStatus = driver.getWebSearch() ? 'BẬT' : 'TẮT';
   screen.consoleLog(`\n[Hệ thống] Gửi yêu cầu chính thức (Tìm kiếm Web: ${searchStatus})...`);
 
+  // Lưu câu hỏi vào lịch sử và render lại vùng cuộn
+  chatHistory.push({ role: 'user', content: finalPrompt });
+  rebuildScrollBuffer();
+
   try {
     await driver.sendPrompt(finalPrompt);
   } catch (err) {
@@ -440,23 +637,11 @@ async function main() {
       streamBuffer = '';
     }
     
-    // Render Markdown cho câu trả lời của AI và cập nhật vào buffer
-    if (sseState.aiResponseStartIndex !== -1) {
-      const rawText = sseState.currentResponseText;
-      const parsedCitations = replaceCitations(rawText, sseState.webSearchInfo);
-      let renderedMarkdown = '';
-      try {
-        renderedMarkdown = marked.parse(parsedCitations).trimEnd();
-      } catch (err) {
-        renderedMarkdown = parsedCitations;
-      }
-      
-      const bufferBefore = screen.getScrollContentBuffer().slice(0, sseState.aiResponseStartIndex);
-      screen.setScrollContentBuffer(bufferBefore + renderedMarkdown + '\n');
-      screen.refreshScrollRegion();
-    } else {
-      screen.printInScrollRegion('\n');
+    // Lưu câu trả lời của AI vào lịch sử và render lại sạch sẽ vùng cuộn
+    if (sseState.currentResponseText) {
+      chatHistory.push({ role: 'assistant', content: sseState.currentResponseText, docs: sseState.webSearchInfo });
     }
+    rebuildScrollBuffer();
     
     if (resolveDonePromise) {
       resolveDonePromise();
@@ -479,20 +664,11 @@ async function main() {
       streamBuffer = '';
     }
     
-    // Render Markdown cho phần câu trả lời đã nhận được nếu có
-    if (sseState.aiResponseStartIndex !== -1) {
-      const rawText = sseState.currentResponseText;
-      const parsedCitations = replaceCitations(rawText, sseState.webSearchInfo);
-      let renderedMarkdown = '';
-      try {
-        renderedMarkdown = marked.parse(parsedCitations).trimEnd();
-      } catch (err) {
-        renderedMarkdown = parsedCitations;
-      }
-      
-      const bufferBefore = screen.getScrollContentBuffer().slice(0, sseState.aiResponseStartIndex);
-      screen.setScrollContentBuffer(bufferBefore + renderedMarkdown + '\n');
+    // Lưu câu trả lời dở dang vào lịch sử nếu có
+    if (sseState.currentResponseText) {
+      chatHistory.push({ role: 'assistant', content: sseState.currentResponseText, docs: sseState.webSearchInfo });
     }
+    rebuildScrollBuffer();
     
     screen.consoleError(`\n[Lỗi Stream]: ${errMsg}`);
     
@@ -541,14 +717,13 @@ async function main() {
         return;
       }
       
-      let formattedHistory = '';
+      chatHistory = [];
       const msgMap = chatData.chat && chatData.chat.messages ? chatData.chat.messages : {};
       const messages = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
       
       messages.forEach(msg => {
         if (msg.role === 'user') {
-          const userBlock = editor.formatUserPromptBlock(msg.content, process.stdout.columns || 80);
-          formattedHistory += '\n' + userBlock + '\n';
+          chatHistory.push({ role: 'user', content: msg.content });
         } else if (msg.role === 'assistant') {
           let assistantContent = msg.content || '';
           if (msg.content_list && msg.content_list.length > 0) {
@@ -561,20 +736,26 @@ async function main() {
             }
           }
           
-          let renderedMarkdown = '';
-          try {
-            renderedMarkdown = marked.parse(assistantContent).trimEnd();
-          } catch (err) {
-            renderedMarkdown = assistantContent;
+          let lastDocs = null;
+          if (msg.content_list && Array.isArray(msg.content_list)) {
+            for (let i = msg.content_list.length - 1; i >= 0; i--) {
+              const item = msg.content_list[i];
+              if (item.phase === 'web_search' && item.extra) {
+                const docs = item.extra.web_search_info || (item.extra.tool_result && item.extra.tool_result.docs);
+                if (docs && Array.isArray(docs) && docs.length > 0) {
+                  lastDocs = docs;
+                  break;
+                }
+              }
+            }
           }
           
-          formattedHistory += `\n\x1b[1m[AI]:\x1b[0m ${renderedMarkdown}\n`;
+          chatHistory.push({ role: 'assistant', content: assistantContent, docs: lastDocs });
         }
       });
       
-      screen.setScrollContentBuffer(formattedHistory);
+      rebuildScrollBuffer();
       screen.setScrollOffset(0);
-      screen.refreshScrollRegion();
       
       await driver.resumeChat(chatId);
       screen.consoleLog(`[Hệ thống] Phục hồi cuộc trò chuyện thành công!`);
@@ -598,6 +779,7 @@ async function main() {
 
   // 3. Khởi tạo lắng nghe bàn phím và vẽ UI ngay lập tức để người dùng có thể nhập liệu/chọn tính năng
   try {
+    screen.setResizeCallback(rebuildScrollBuffer);
     editor.setupTerminalInput(handleUserMessage, onResumeChat);
     editor.renderUI();
   } catch (err) {
