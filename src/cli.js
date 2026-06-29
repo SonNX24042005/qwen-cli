@@ -57,28 +57,75 @@ function wrapAnsiText(text, width) {
   return reflowed.join('\n');
 }
 
-// Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal
-const originalListItem = Renderer.prototype.listitem;
+// Theo dõi độ sâu lồng nhau của list để tính toán thụt lề chính xác khi wrap
+let listDepth = 0;
+const originalList = Renderer.prototype.list;
+Renderer.prototype.list = function(body, ordered) {
+  listDepth++;
+  try {
+    return originalList.call(this, body, ordered);
+  } finally {
+    listDepth--;
+  }
+};
+
+const BULLET_POINT = '* ';
+
+// Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal mà không làm hỏng list lồng nhau
 Renderer.prototype.listitem = function(item) {
-  const rendered = originalListItem.call(this, item);
+  if (typeof item !== 'object') {
+    return '\n' + BULLET_POINT + item;
+  }
+  
+  let itemText = '';
+  let nestedBlocksHtml = '';
+  
+  if (item.tokens && item.tokens.length > 0) {
+    const firstToken = item.tokens[0];
+    const otherTokens = item.tokens.slice(1);
+    
+    // Parse các token inline của paragraph thay vì parse block để tránh bị Renderer.prototype.paragraph wrap trước
+    if (firstToken.tokens) {
+      itemText = this.parser.parseInline(firstToken.tokens);
+    } else {
+      itemText = firstToken.text || '';
+    }
+    
+    if (otherTokens.length > 0) {
+      nestedBlocksHtml = this.parser.parse(otherTokens);
+    }
+  } else {
+    itemText = item.text || '';
+  }
+  
+  if (item.task) {
+    const checkbox = this.checkbox({ checked: !!item.checked });
+    itemText = checkbox + itemText;
+  }
   
   const width = this.o.width || 80;
   const tabLen = this.tab ? this.tab.length : 4;
+  const prefix = '* ';
+  const prefixLen = prefix.length;
   
-  let prefix = '';
-  let content = rendered;
+  // Tính toán chính xác độ rộng giới hạn cuộn dựa trên độ sâu listDepth
+  const depth = Math.max(1, listDepth);
+  const targetWrapWidth = Math.max(30, width - (depth * tabLen) - ((depth - 1) * 2) - prefixLen);
+  const wrappedContent = wrapAnsiText(itemText, targetWrapWidth);
   
-  const markerMatch = rendered.match(/^(\n*)([ *0-9.\-\t]*)(.*)/s);
-  if (markerMatch) {
-    prefix = markerMatch[1] + markerMatch[2];
-    content = markerMatch[3];
+  const wrappedLines = wrappedContent.split('\n');
+  const indentedContent = wrappedLines.map((wl, idx) => {
+    if (idx === 0) return wl;
+    return ' '.repeat(prefixLen) + wl;
+  }).join('\n');
+  
+  let finalContent = indentedContent;
+  if (nestedBlocksHtml) {
+    finalContent += '\n' + nestedBlocksHtml.trimEnd();
   }
   
-  const prefixLen = prefix.replace(/\n/g, '').length;
-  const targetWrapWidth = Math.max(30, width - tabLen - prefixLen);
-  const wrappedContent = wrapAnsiText(content, targetWrapWidth);
-  
-  return prefix + wrappedContent;
+  const transform = (txt) => this.o.listitem(this.transform(txt));
+  return '\n' + BULLET_POINT + transform(finalContent);
 };
 
 // Ghi đè Renderer.prototype.link để tránh tự động nối tiếp URL thô trong ngoặc đơn nếu terminal không hỗ trợ hyperlink
