@@ -1,6 +1,7 @@
 'use strict';
 
 const screen = require('../tui/screen');
+const driver = require('../driver');
 
 // Phân tích cú pháp dữ liệu stream SSE
 function parseSSEChunk(rawText, state, printCallback) {
@@ -9,7 +10,8 @@ function parseSSEChunk(rawText, state, printCallback) {
     hasShownThinkingLabel,
     hasShownAnswerLabel = false,
     aiResponseStartIndex = -1,
-    webSearchInfo = []
+    webSearchInfo = [],
+    printedThoughts = []
   } = state;
 
   const processJson = (dataJson) => {
@@ -29,23 +31,64 @@ function parseSSEChunk(rawText, state, printCallback) {
 
         // 1. Phát hiện phase suy nghĩ (thinking_summary)
         if (delta.phase === 'thinking_summary') {
+          const isDetailed = driver.isDetailedThinking();
           if (!hasShownThinkingLabel) {
-            printCallback('\n[AI Thinking]: ');
+            if (isDetailed) {
+              printCallback('\n[AI Thinking]:\n');
+            } else {
+              printCallback('\n[AI Thinking]: ');
+            }
+            screen.startThinkingSpinner();
             hasShownThinkingLabel = true;
           }
-          printCallback('.');
+
+          if (isDetailed) {
+            if (delta.extra) {
+              const titles = delta.extra.summary_title ? delta.extra.summary_title.content : [];
+              const thoughts = delta.extra.summary_thought ? delta.extra.summary_thought.content : [];
+              
+              for (let i = 0; i < titles.length; i++) {
+                if (!printedThoughts[i]) {
+                  printedThoughts[i] = { titlePrinted: false, contentPrintedLength: 0 };
+                }
+                
+                const stepState = printedThoughts[i];
+                if (!stepState.titlePrinted) {
+                  const prefix = i === 0 ? '' : '\n';
+                  printCallback(`${prefix}\x1b[1m\x1b[36m⚙ ${titles[i]}\x1b[0m\n`);
+                  stepState.titlePrinted = true;
+                }
+                
+                if (thoughts[i]) {
+                  const fullThought = thoughts[i];
+                  const printedLen = stepState.contentPrintedLength;
+                  if (fullThought.length > printedLen) {
+                    const newText = fullThought.slice(printedLen);
+                    if (printedLen === 0) {
+                      printCallback('  ');
+                    }
+                    const indentedText = newText.replace(/\n/g, '\n  ');
+                    printCallback(`\x1b[90m${indentedText}\x1b[0m`);
+                    stepState.contentPrintedLength = fullThought.length;
+                  }
+                }
+              }
+            }
+          }
         }
         
         // 2. Phát hiện phase trả lời chính thức (answer)
         if (delta.content && (!delta.phase || delta.phase === 'answer')) {
           if (!hasShownAnswerLabel) {
-            if (hasShownThinkingLabel) {
+            screen.stopThinkingSpinner();
+            if (hasShownThinkingLabel || (driver.isDetailedThinking() && printedThoughts.length > 0)) {
               printCallback('\n\n\x1b[1m[AI]:\x1b[0m ');
             } else {
               printCallback('\n\x1b[1m[AI]:\x1b[0m ');
             }
             hasShownThinkingLabel = false;
             hasShownAnswerLabel = true;
+            printedThoughts = [];
             aiResponseStartIndex = screen.getScrollContentBuffer().length;
           }
 
@@ -72,7 +115,7 @@ function parseSSEChunk(rawText, state, printCallback) {
     if (dataJson && dataJson !== '[DONE]') {
       try {
         processJson(dataJson);
-        return { currentResponseText, hasShownThinkingLabel, hasShownAnswerLabel, aiResponseStartIndex, webSearchInfo };
+        return { currentResponseText, hasShownThinkingLabel, hasShownAnswerLabel, aiResponseStartIndex, webSearchInfo, printedThoughts };
       } catch (e) {
         // Fallback xuống giải pháp split dòng bên dưới nếu bị lỗi
       }
@@ -84,7 +127,7 @@ function parseSSEChunk(rawText, state, printCallback) {
         const errMsg = parsed.data.details || parsed.data.code || 'Lỗi không xác định';
         printCallback(`\n\x1b[31m[Lỗi Qwen]: ${errMsg}\x1b[0m\n`);
       }
-      return { currentResponseText, hasShownThinkingLabel, hasShownAnswerLabel, aiResponseStartIndex, webSearchInfo };
+      return { currentResponseText, hasShownThinkingLabel, hasShownAnswerLabel, aiResponseStartIndex, webSearchInfo, printedThoughts };
     } catch (e) {}
   }
 
@@ -122,7 +165,8 @@ function parseSSEChunk(rawText, state, printCallback) {
     hasShownThinkingLabel, 
     hasShownAnswerLabel, 
     aiResponseStartIndex,
-    webSearchInfo
+    webSearchInfo,
+    printedThoughts
   };
 }
 

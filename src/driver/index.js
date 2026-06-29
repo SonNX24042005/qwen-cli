@@ -11,7 +11,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const { INIT_SCRIPT } = require('./hook');
 const { checkIsGuest, runInteractiveLogin, checkHasCaptcha, BASE_URL } = require('./auth');
 
-const INPUT_SELECTOR = 'textarea.message-input-textarea, textarea';
+const INPUT_SELECTOR = 'textarea.message-input-textarea, textarea:not([readonly]):not([disabled])';
 
 let browser = null;
 let context = null;
@@ -22,6 +22,8 @@ let currentOnDone = null;
 let currentOnError = null;
 
 let isWebSearchEnabled = false;
+let currentThinkingMode = 'auto'; // 'auto' | 'thinking' | 'fast'
+
 
 // Khởi chạy chế độ giải Captcha tương tác (Headful)
 async function runInteractiveCaptchaSolver(failedPromptText) {
@@ -48,6 +50,14 @@ async function runInteractiveCaptchaSolver(failedPromptText) {
   await captchaPage.evaluate((status) => {
     window.__qwenWebSearchEnabled = status;
   }, isWebSearchEnabled);
+
+  await captchaPage.evaluate((mName) => {
+    window.__qwenModelName = mName;
+  }, currentModelName);
+
+  await captchaPage.evaluate((tMode) => {
+    window.__qwenThinkingMode = tMode;
+  }, currentThinkingMode);
 
   await captchaPage.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await captchaPage.waitForSelector(INPUT_SELECTOR, { timeout: 15000 }).catch(() => {});
@@ -263,6 +273,14 @@ async function initBrowser(onChunk, onDone, onError) {
     window.__qwenWebSearchEnabled = status;
   }, isWebSearchEnabled);
 
+  await page.evaluate((mName) => {
+    window.__qwenModelName = mName;
+  }, currentModelName);
+
+  await page.evaluate((tMode) => {
+    window.__qwenThinkingMode = tMode;
+  }, currentThinkingMode);
+
   await page.waitForTimeout(2000);
   
   console.log('[Driver] Kết nối thành công và đã sẵn sàng chat!');
@@ -314,6 +332,73 @@ async function closeBrowser() {
   }
 }
 
+async function setThinkingMode(tMode) {
+  currentThinkingMode = tMode;
+  if (page) {
+    await page.evaluate((mode) => {
+      window.__qwenThinkingMode = mode;
+    }, currentThinkingMode);
+  }
+}
+function getThinkingMode() {
+  return currentThinkingMode;
+}
+
+let isDetailedThinkingEnabled = false;
+
+function isDetailedThinking() {
+  return isDetailedThinkingEnabled;
+}
+
+function toggleDetailedThinking() {
+  isDetailedThinkingEnabled = !isDetailedThinkingEnabled;
+  return isDetailedThinkingEnabled;
+}
+
+function setDetailedThinking(val) {
+  isDetailedThinkingEnabled = !!val;
+}
+
+async function getChatHistory(pageNumber = 1) {
+  if (!page) throw new Error('Trình duyệt chưa được khởi tạo.');
+  
+  return await page.evaluate(async (pNum) => {
+    try {
+      const res = await fetch(`/api/v2/chats/?page=${pNum}&exclude_project=true`);
+      const json = await res.json();
+      return json.success ? json.data : [];
+    } catch (e) {
+      console.error('Error fetching history:', e);
+      return [];
+    }
+  }, pageNumber);
+}
+
+async function getChatDetails(chatId) {
+  if (!page) throw new Error('Trình duyệt chưa được khởi tạo.');
+  
+  return await page.evaluate(async (id) => {
+    try {
+      const res = await fetch(`/api/v2/chats/${id}`);
+      const json = await res.json();
+      return json.success ? json.data : null;
+    } catch (e) {
+      console.error('Error fetching chat details:', e);
+      return null;
+    }
+  }, chatId);
+}
+
+async function resumeChat(chatId) {
+  if (!page) throw new Error('Trình duyệt chưa được khởi tạo.');
+  
+  const targetUrl = `${BASE_URL}/c/${chatId}`;
+  console.log(`[Driver] Đang chuyển sang cuộc trò chuyện: ${targetUrl}`);
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
+  await page.waitForTimeout(2000);
+}
+
 module.exports = {
   initBrowser,
   sendPrompt,
@@ -322,5 +407,13 @@ module.exports = {
   getWebSearch,
   uploadFile,
   setModelName,
-  getModelName
+  getModelName,
+  setThinkingMode,
+  getThinkingMode,
+  isDetailedThinking,
+  toggleDetailedThinking,
+  setDetailedThinking,
+  getChatHistory,
+  getChatDetails,
+  resumeChat
 };

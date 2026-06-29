@@ -1,4 +1,6 @@
+#!/usr/bin/env node
 'use strict';
+
 
 const path = require('path');
 const fs = require('fs');
@@ -54,8 +56,12 @@ let sseState = {
   hasShownThinkingLabel: false,
   hasShownAnswerLabel: false,
   aiResponseStartIndex: -1,
-  webSearchInfo: []
+  webSearchInfo: [],
+  printedThoughts: []
 };
+
+let currentHistoryPage = 1;
+let currentHistoryItems = [];
 
 // Thay thế các ký hiệu [[N]] thành liên kết Markdown [[N] domain](url)
 function replaceCitations(text, docs) {
@@ -83,6 +89,10 @@ function replaceCitations(text, docs) {
 let resolveDonePromise = null;
 let streamBuffer = '';
 
+// Biến trạng thái khởi tạo trình duyệt trong background
+let browserInitPromise = null;
+let isBrowserReady = false;
+
 function waitForResponse() {
   return new Promise((resolve) => {
     resolveDonePromise = resolve;
@@ -105,21 +115,127 @@ async function handleUserMessage(inputText) {
     return;
   }
 
-  // Xử lý lệnh bật/tắt Web Search
-  if (trimmedInput === '/websearch' || trimmedInput === '/ws') {
-    const currentStatus = driver.getWebSearch();
+  // Xử lý lệnh thay đổi chế độ suy nghĩ có hoặc không có tham số
+  if (trimmedInput.startsWith('/mode') || trimmedInput.startsWith('/md')) {
+    const parts = trimmedInput.split(/\s+/);
+    const cmd = parts[0];
+    if (cmd === '/mode' || cmd === '/md') {
+      const modeArg = parts[1] ? parts[1].toLowerCase().trim() : '';
+      if (['fast', 'thinking', 'auto'].includes(modeArg)) {
+        await driver.setThinkingMode(modeArg);
+        const modeDisplay = modeArg === 'fast' ? 'Fast' : (modeArg === 'thinking' ? 'Thinking' : 'Auto');
+        screen.consoleLog(`[Hệ thống] Chế độ suy nghĩ đã được chuyển thành: ${modeDisplay}`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      } else if (modeArg === '') {
+        const currentMode = driver.getThinkingMode();
+        const currentModeDisplay = currentMode === 'fast' ? 'Fast' : (currentMode === 'thinking' ? 'Thinking' : 'Auto');
+        screen.consoleLog(`[Hệ thống] Chế độ suy nghĩ hiện tại: ${currentModeDisplay}`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      } else {
+        screen.consoleError(`[Lỗi] Chế độ không hợp lệ. Các chế độ hỗ trợ: fast, thinking, auto`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+    }
+  }
+
+  // Xử lý lệnh bật/tắt hiển thị suy nghĩ chi tiết
+  if (trimmedInput === '/detail' || trimmedInput === '/dt') {
+    const currentStatus = driver.isDetailedThinking();
     const newStatus = !currentStatus;
-    await driver.setWebSearch(newStatus);
-    screen.consoleLog(`[Hệ thống] Tìm kiếm Web đã được: ${newStatus ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
+    driver.setDetailedThinking(newStatus);
+    screen.consoleLog(`[Hệ thống] Hiển thị suy nghĩ chi tiết đã được: ${newStatus ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
     editor.setIsWaitingResponse(false);
     editor.renderUI();
     return;
   }
 
-  // 1. Phân tích các tệp đính kèm @path
-  const pathsToProcess = fileUtils.extractAttachedFiles(trimmedInput);
-  let allFilesToUpload = [];
+  // Xử lý lệnh xem lịch sử cuộc trò chuyện
+  if (trimmedInput === '/resume' || trimmedInput === '/rs') {
+    screen.consoleLog(`\n[Hệ thống] Đang tải danh sách lịch sử cuộc trò chuyện...`);
+    editor.setIsWaitingResponse(true);
+    
+    try {
+      currentHistoryPage = 1;
+      const history = await driver.getChatHistory(1);
+      if (!history || history.length === 0) {
+        screen.consoleLog('[Hệ thống] Không tìm thấy cuộc trò chuyện nào trong lịch sử.');
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      
+      currentHistoryItems = history;
+      const hasMore = history.length >= 10;
+      editor.showHistorySelection(history, hasMore);
+    } catch (err) {
+      screen.consoleError(`[Lỗi tải lịch sử]: ${err.message}`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+    }
+    return;
+  }
+
   let finalPrompt = trimmedInput;
+
+  // Xử lý lệnh bật/tắt Web Search kèm hoặc không kèm prompt
+  if (trimmedInput.startsWith('/websearch') || trimmedInput.startsWith('/wedsearch') || trimmedInput.startsWith('/ws')) {
+    let isExactMatch = false;
+    let startsWithSpace = false;
+    let cmdLength = 0;
+
+    if (trimmedInput === '/websearch' || trimmedInput === '/wedsearch') {
+      isExactMatch = true;
+    } else if (trimmedInput.startsWith('/websearch ') || trimmedInput.startsWith('/wedsearch ')) {
+      startsWithSpace = true;
+      cmdLength = trimmedInput.startsWith('/websearch ') ? '/websearch '.length : '/wedsearch '.length;
+    } else if (trimmedInput === '/ws') {
+      isExactMatch = true;
+    } else if (trimmedInput.startsWith('/ws ')) {
+      startsWithSpace = true;
+      cmdLength = '/ws '.length;
+    }
+
+    if (isExactMatch) {
+      const currentStatus = driver.getWebSearch();
+      const newStatus = !currentStatus;
+      await driver.setWebSearch(newStatus);
+      screen.consoleLog(`[Hệ thống] Tìm kiếm Web đã được: ${newStatus ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+      return;
+    } else if (startsWithSpace) {
+      const extractedPrompt = trimmedInput.slice(cmdLength).trim();
+      if (!extractedPrompt) {
+        const currentStatus = driver.getWebSearch();
+        const newStatus = !currentStatus;
+        await driver.setWebSearch(newStatus);
+        screen.consoleLog(`[Hệ thống] Tìm kiếm Web đã được: ${newStatus ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      } else {
+        await driver.setWebSearch(true);
+        screen.consoleLog(`[Hệ thống] Đã tự động BẬT (ON) Tìm kiếm Web và ghi nhớ cấu hình này.`);
+        finalPrompt = extractedPrompt;
+      }
+    }
+  }
+
+  // Nếu trình duyệt chưa khởi động xong, chờ khởi động hoàn tất
+  if (!isBrowserReady && browserInitPromise) {
+    screen.consoleLog('[Hệ thống] Trình duyệt đang khởi động, yêu cầu của bạn sẽ được gửi ngay sau khi kết nối sẵn sàng...');
+    await browserInitPromise;
+  }
+
+  // 1. Phân tích các tệp đính kèm @path
+  const pathsToProcess = fileUtils.extractAttachedFiles(finalPrompt);
+  let allFilesToUpload = [];
 
   if (pathsToProcess.length > 0) {
     screen.consoleLog(`[Hệ thống] Đang phân tích ${pathsToProcess.length} đường dẫn đính kèm...`);
@@ -195,6 +311,7 @@ async function handleUserMessage(inputText) {
       sseState.hasShownAnswerLabel = false;
       sseState.aiResponseStartIndex = -1;
       sseState.webSearchInfo = [];
+      sseState.printedThoughts = [];
       streamBuffer = '';
 
       const silentPrompt = `[Hệ thống] Đây là nhóm tệp đính kèm thứ ${chunkIndex} trên tổng số ${totalChunks}. Vui lòng ghi nhớ và phân tích nội dung các tệp này để chuẩn bị trả lời câu hỏi tiếp theo.`;
@@ -243,6 +360,7 @@ async function handleUserMessage(inputText) {
   sseState.hasShownAnswerLabel = false;
   sseState.aiResponseStartIndex = -1;
   sseState.webSearchInfo = [];
+  sseState.printedThoughts = [];
   streamBuffer = '';
 
   const searchStatus = driver.getWebSearch() ? 'BẬT' : 'TẮT';
@@ -258,6 +376,31 @@ async function handleUserMessage(inputText) {
 }
 
 async function main() {
+  // 0. Phân tích đối số dòng lệnh để thiết lập chế độ suy nghĩ ban đầu
+  let initialThinkingMode = 'auto';
+  const modeArgIndex = process.argv.findIndex(arg => arg === '--mode' || arg === '--think' || arg === '-t');
+  if (modeArgIndex !== -1 && process.argv[modeArgIndex + 1]) {
+    const val = process.argv[modeArgIndex + 1].toLowerCase().trim();
+    if (['fast', 'thinking', 'auto'].includes(val)) {
+      initialThinkingMode = val;
+    }
+  }
+  process.argv.forEach(arg => {
+    if (arg.startsWith('--mode=')) {
+      const val = arg.split('=')[1].toLowerCase().trim();
+      if (['fast', 'thinking', 'auto'].includes(val)) {
+        initialThinkingMode = val;
+      }
+    } else if (arg.startsWith('--think=')) {
+      const val = arg.split('=')[1].toLowerCase().trim();
+      if (['fast', 'thinking', 'auto'].includes(val)) {
+        initialThinkingMode = val;
+      }
+    }
+  });
+
+  await driver.setThinkingMode(initialThinkingMode);
+
   // 1. Khởi chạy Alternate Screen Buffer và Scrolling Region sạch sẽ đầu tiên
   screen.initTUI();
   screen.setRenderUICallback(editor.renderUI);
@@ -287,6 +430,7 @@ async function main() {
 
   const onDone = () => {
     editor.setIsWaitingResponse(false);
+    screen.stopThinkingSpinner();
     
     // Xử lý nốt phần buffer còn lại nếu có
     if (streamBuffer.trim()) {
@@ -325,6 +469,7 @@ async function main() {
 
   const onError = (errMsg) => {
     editor.setIsWaitingResponse(false);
+    screen.stopThinkingSpinner();
     
     // Xử lý nốt phần buffer còn lại nếu có
     if (streamBuffer.trim()) {
@@ -360,15 +505,103 @@ async function main() {
     editor.renderUI();
   };
 
-  try {
-    // 2. Khởi chạy trình duyệt và kết nối (Tất cả logs in sạch sẽ trong màn hình TUI)
-    await driver.initBrowser(onChunk, onDone, onError);
+  const onResumeChat = async (chatId) => {
+    editor.setIsWaitingResponse(true);
     
-    // 3. Khởi tạo lắng nghe bàn phím và vẽ UI
-    editor.setupTerminalInput(handleUserMessage);
+    if (chatId === 'load_more') {
+      screen.consoleLog(`\n[Hệ thống] Đang tải thêm danh sách cuộc trò chuyện...`);
+      try {
+        currentHistoryPage += 1;
+        const newItems = await driver.getChatHistory(currentHistoryPage);
+        if (!newItems || newItems.length === 0) {
+          screen.consoleLog('[Hệ thống] Không còn cuộc trò chuyện nào cũ hơn.');
+          editor.showHistorySelection(currentHistoryItems, false);
+          return;
+        }
+        
+        currentHistoryItems = currentHistoryItems.concat(newItems);
+        const hasMore = newItems.length >= 10;
+        editor.showHistorySelection(currentHistoryItems, hasMore);
+      } catch (err) {
+        screen.consoleError(`[Lỗi tải thêm lịch sử]: ${err.message}`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+      }
+      return;
+    }
+    
+    screen.consoleLog(`\n[Hệ thống] Đang tải chi tiết cuộc trò chuyện và đồng bộ hóa trình duyệt...`);
+    
+    try {
+      const chatData = await driver.getChatDetails(chatId);
+      if (!chatData) {
+        screen.consoleLog('[Lỗi] Không thể tải chi tiết cuộc trò chuyện.');
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      
+      let formattedHistory = '';
+      const msgMap = chatData.chat && chatData.chat.messages ? chatData.chat.messages : {};
+      const messages = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      
+      messages.forEach(msg => {
+        if (msg.role === 'user') {
+          const userBlock = editor.formatUserPromptBlock(msg.content, process.stdout.columns || 80);
+          formattedHistory += '\n' + userBlock + '\n';
+        } else if (msg.role === 'assistant') {
+          let assistantContent = msg.content || '';
+          if (msg.content_list && msg.content_list.length > 0) {
+            const answerItem = msg.content_list.find(item => item.phase === 'answer');
+            if (answerItem) {
+              assistantContent = answerItem.content || '';
+            } else {
+              const lastItem = msg.content_list[msg.content_list.length - 1];
+              assistantContent = lastItem.content || '';
+            }
+          }
+          
+          let renderedMarkdown = '';
+          try {
+            renderedMarkdown = marked.parse(assistantContent).trimEnd();
+          } catch (err) {
+            renderedMarkdown = assistantContent;
+          }
+          
+          formattedHistory += `\n\x1b[1m[AI]:\x1b[0m ${renderedMarkdown}\n`;
+        }
+      });
+      
+      screen.setScrollContentBuffer(formattedHistory);
+      screen.setScrollOffset(0);
+      screen.refreshScrollRegion();
+      
+      await driver.resumeChat(chatId);
+      screen.consoleLog(`[Hệ thống] Phục hồi cuộc trò chuyện thành công!`);
+    } catch (err) {
+      screen.consoleError(`[Lỗi phục hồi cuộc trò chuyện]: ${err.message}`);
+    } finally {
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+    }
+  };
+
+  // 2. Khởi chạy trình duyệt và kết nối trong background (tự ghi nhận kết quả và cập nhật isBrowserReady)
+  browserInitPromise = driver.initBrowser(onChunk, onDone, onError)
+    .then(() => {
+      isBrowserReady = true;
+    })
+    .catch(async (err) => {
+      screen.consoleError(`\n[Lỗi khởi động]: ${err.message}`);
+      await screen.shutdownTUI();
+    });
+
+  // 3. Khởi tạo lắng nghe bàn phím và vẽ UI ngay lập tức để người dùng có thể nhập liệu/chọn tính năng
+  try {
+    editor.setupTerminalInput(handleUserMessage, onResumeChat);
     editor.renderUI();
   } catch (err) {
-    screen.consoleError(`\n[Lỗi khởi động]: ${err.message}`);
+    screen.consoleError(`\n[Lỗi hiển thị TUI]: ${err.message}`);
     await screen.shutdownTUI();
   }
 }

@@ -27,9 +27,26 @@ Dự án được trang bị giao diện người dùng tương tác **TUI (Term
 6.  **Tự động bypass bảo mật & Giải Captcha tương tác**:
     *   **Interactive Login Mode**: Tự động mở cửa sổ trình duyệt Chromium hiển thị (Headful) cho bạn đăng nhập nếu Token hết hạn. Node.js sẽ tự động bắt Token mới lưu vào `.env` và đóng trình duyệt để chuyển về chế độ chạy ẩn danh (Headless).
     *   **Interactive Captcha Solver**: Tự động mở cửa sổ trình duyệt Chrome thật khi phát hiện Captcha bảo mật Alibaba WAF RGV587. Bạn chỉ cần kéo thanh slider captcha trên màn hình, CLI sẽ tự động tắt trình duyệt và gửi lại câu hỏi bị nghẽn trước đó.
-6.  **Kiểm soát Tìm kiếm Web (`/ws` hoặc `/websearch`)**:
+7.  **Kiểm soát Tìm kiếm Web (`/ws` hoặc `/websearch`)**:
     *   Mặc định Tìm kiếm Web được **TẮT** để tối ưu hóa tài nguyên mạng.
-    *   Gõ `/ws` hoặc `/websearch` trên CLI để bật/tắt Tìm kiếm Web thời gian thực bất cứ lúc nào.
+    *   Gõ `/ws` hoặc `/websearch` và nhấn **Enter** để bật/tắt (toggle) Tìm kiếm Web.
+    *   Gõ `/ws <câu_hỏi>` hoặc `/websearch <câu_hỏi>` để **bật** Tìm kiếm Web, sử dụng tính năng này cho câu hỏi đó và **ghi nhớ/giữ trạng thái bật** cho các câu hỏi tiếp theo.
+8.  **Chế độ suy nghĩ linh hoạt (Thinking Mode)**:
+    *   Tích hợp 3 chế độ suy nghĩ của Qwen: **Fast** (Trả lời nhanh không suy nghĩ), **Thinking** (Bắt buộc suy nghĩ sâu), **Auto** (Tự động).
+    *   Gõ `/mode` hoặc `/md` để mở menu chọn chế độ, hoặc thay đổi trực tiếp bằng tham số khởi chạy CLI (`--mode`, `--think`, `-t`).
+9.  **Hiển thị suy nghĩ chi tiết (Detailed Thinking)**:
+    *   Bật/tắt hiển thị từng bước suy nghĩ chi tiết (như trên Web) bằng phím tắt **Ctrl+D** / **Ctrl+T** hoặc lệnh `/detail` / `/dt`.
+    *   Trang bị hiệu ứng Spinner chuyển động động (`⠋`, `⠙`, `⠹`...) tránh cảm giác đứng màn hình khi AI đang suy luận.
+10. **Phục hồi chat từ lịch sử (`/resume` hoặc `/rs`)**:
+    *   Gõ `/resume` hoặc `/rs` hiển thị danh sách các cuộc hội thoại cũ từ tài khoản Qwen.
+    *   Hỗ trợ phân trang: Chọn `❯ ⟳ Tải thêm cuộc hội thoại cũ hơn...` để nạp tiếp các trang cũ hơn trực tiếp trong menu.
+    *   Khi chọn 1 cuộc hội thoại, CLI sẽ tự động tải, định dạng Markdown đầy đủ lịch sử chat cũ lên Terminal, đồng thời đồng bộ Chromium ngầm sang phòng chat đó để tiếp tục trò chuyện.
+11. **Tối ưu hóa nhập liệu nâng cao**:
+    *   Hỗ trợ phím **Home** / **End** để di chuyển nhanh con trỏ chuột về đầu hoặc cuối dòng.
+    *   Tự động phát hiện và xuống dòng tự động (`Wrap`) khi nội dung nhập quá chiều ngang màn hình mà không làm đè lên thanh Status Bar.
+12. **Khởi động ngầm, không chặn nhập liệu**:
+    *   Trình duyệt Chromium được tự động khởi động ngầm ở chế độ background khi mở CLI.
+    *   Người dùng có thể gõ phím, chuẩn bị sẵn câu hỏi, chọn mô hình hoặc các tính năng ngay lập tức mà không cần chờ kết nối hoàn tất.
 
 ---
 
@@ -60,19 +77,44 @@ npm start
     ```
     /m
     ```
-    *(Hoặc `/model`, mở ra menu dropdown màu cam để di chuyển TAB/Mũi tên và Enter để chọn model)*
-*   **Bật/Tắt Tìm kiếm Web**:
+    *(Hoặc `/model`, mở dropdown màu cam di chuyển bằng Mũi tên/TAB và nhấn Enter để chọn)*
+*   **Chọn chế độ suy nghĩ (Thinking Mode)**:
     ```
-    /ws
+    /md
     ```
-    *(Hoặc `/websearch`)*
+    *(Hoặc `/mode`, mở dropdown chọn giữa: `Fast`, `Thinking`, `Auto`)*
+    - Đổi nhanh qua tham số: `/md fast`, `/md thinking`, `/md auto`
+*   **Bật/tắt suy nghĩ chi tiết (Detailed Thinking)**:
+    ```
+    /dt
+    ```
+    *(Hoặc `/detail`, hoặc dùng phím tắt nhanh **Ctrl+D** / **Ctrl+T** để bật/tắt hiển thị luồng suy nghĩ)*
+*   **Tiếp tục chat từ lịch sử (Resume Chat)**:
+    ```
+    /rs
+    ```
+    *(Hoặc `/resume`, mở danh sách chọn các cuộc hội thoại cũ kèm nút `Tải thêm...` ở cuối)*
+*   **Tìm kiếm Web (Web Search)**:
+    - Bật/Tắt (Toggle):
+      ```
+      /ws
+      ```
+      *(Hoặc `/websearch`)*
+    - Bật và hỏi trực tiếp:
+      ```
+      /ws <câu hỏi>
+      ```
 *   **Thoát ứng dụng**:
-    ```
-    /exit
-    ```
-    *(Hoặc nhấn tổ hợp phím `Ctrl + C`)*
+      ```
+      /exit
+      ```
+      *(Hoặc nhấn tổ hợp phím `Ctrl + C`)*
 
-### 3. Cú pháp đính kèm tệp tin & thư mục và gợi ý câu lệnh
+### 3. Cờ tham số khởi chạy dòng lệnh (CLI Parameters)
+Bạn có thể cấu hình trước các chế độ khi bắt đầu ứng dụng:
+*   Chế độ mặc định: `node src/cli.js --mode fast` (hoặc `--think thinking`, `-t auto`)
+
+### 4. Cú pháp đính kèm tệp tin & thư mục và gợi ý câu lệnh
 Bạn chỉ cần gõ ký tự `@` rồi gõ tên file/folder, hoặc gõ `/` để gọi danh sách lệnh hệ thống (nhấn phím **TAB** để chọn nhanh):
 *   **Gợi ý file tương tác**:
     > [You]: Giải thích logic trong file @src/ (nhấn TAB chọn file index.js) 

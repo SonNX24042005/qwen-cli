@@ -66,13 +66,13 @@ Các tính năng điều khiển và định dạng nhập liệu.
 ## 3. Cấu hình Tham số Chat (Chat Settings & Parameters)
 Các cấu hình điều khiển mô hình và phong cách phản hồi.
 
-- [/] **Lựa chọn Mô hình (Model Selection)**
+- [x] **Lựa chọn Mô hình (Model Selection)**
   - [x] Mặc định kết nối và sử dụng model **Qwen3.7-Plus** (Model đa phương thức và suy nghĩ sâu tốt nhất).
-  - [ ] Cho phép chuyển đổi nhanh model qua CLI parameter (Qwen3.7-Max, Qwen3.6-Plus...).
+  - [x] Cho phép chuyển đổi nhanh model qua CLI parameter, lệnh gõ hoặc menu tương tác.
   - [ ] So sánh mô hình song song (Model Comparison).
-- [/] **Chế độ Suy nghĩ (Thinking Mode)**
+- [x] **Chế độ Suy nghĩ (Thinking Mode)**
   - [x] Mặc định chạy ở chế độ **Auto** (Tự động quyết định suy nghĩ).
-  - [ ] Cho phép cấu hình cứng các chế độ qua CLI parameter: *Auto*, *Thinking* (Bắt buộc suy nghĩ sâu), *Fast* (Trả lời ngay không suy nghĩ).
+  - [x] Cho phép cấu hình cứng các chế độ qua CLI parameter: *Auto*, *Thinking* (Bắt buộc suy nghĩ sâu), *Fast* (Trả lời ngay không suy nghĩ).
 - [x] **Tìm kiếm Web (Web Search)**
   - [x] Mặc định kích hoạt tìm kiếm Web (Auto Search).
   - [x] Cho phép bật/tắt Web Search bằng tham số CLI.
@@ -125,7 +125,8 @@ Các cài đặt ứng dụng và lịch sử hội thoại.
   - [ ] Đổi mật khẩu.
   - [ ] Xóa tài khoản vĩnh viễn.
   - [ ] Quản lý và tùy chỉnh Cookies quảng cáo/cookie cần thiết.
-- [ ] **Quản lý lịch sử Chat (Chats Management)**
-  - [ ] Hiển thị danh sách hội thoại cũ (Chat history list).
-  - [ ] Xem lại, đổi tên, xóa, ghim (Pin), nhân bản (Clone), chia sẻ, tải xuống (Download) cuộc hội thoại cũ.
+- [/] **Quản lý lịch sử Chat (Chats Management)**
+  - [x] Hiển thị danh sách hội thoại cũ (Chat history list) qua lệnh `/resume` / `/rs`.
+  - [x] Phục hồi và tiếp tục cuộc hội thoại cũ trực tiếp trên Terminal và đồng bộ hóa trình duyệt ngầm.
+  - [ ] Đổi tên, xóa, ghim (Pin), nhân bản (Clone), chia sẻ, tải xuống (Download) cuộc hội thoại cũ.
   - [ ] Xuất/Nhập lịch sử chat (Export/Import Chats).

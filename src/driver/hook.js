@@ -16,6 +16,9 @@ const INIT_SCRIPT = (token) => `(function() {
   if (window.__qwenModelName === undefined) {
     window.__qwenModelName = 'qwen3.7-plus';
   }
+  if (window.__qwenThinkingMode === undefined) {
+    window.__qwenThinkingMode = 'auto';
+  }
 
   if (window.__teeInstalled) return;
   window.__teeInstalled = true;
@@ -40,6 +43,23 @@ const INIT_SCRIPT = (token) => `(function() {
                 if (!msg.feature_config) msg.feature_config = {};
                 // Ghi đè cấu hình tìm kiếm web theo cài đặt từ CLI
                 msg.feature_config.auto_search = !!window.__qwenWebSearchEnabled;
+                
+                // Ghi đè cấu hình chế độ suy nghĩ (thinking mode)
+                const thinkingMode = window.__qwenThinkingMode || 'auto';
+                if (thinkingMode === 'fast') {
+                  msg.feature_config.thinking_enabled = false;
+                  msg.feature_config.auto_thinking = false;
+                  msg.feature_config.thinking_mode = 'Fast';
+                } else if (thinkingMode === 'thinking') {
+                  msg.feature_config.thinking_enabled = true;
+                  msg.feature_config.auto_thinking = false;
+                  msg.feature_config.thinking_mode = 'Thinking';
+                } else { // auto
+                  msg.feature_config.thinking_enabled = true;
+                  msg.feature_config.auto_thinking = true;
+                  msg.feature_config.thinking_mode = 'Thinking';
+                }
+                msg.feature_config.thinking_format = 'summary';
               }
             });
           }

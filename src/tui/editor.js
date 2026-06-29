@@ -9,16 +9,54 @@ const screen = require('./screen');
 let isWaitingResponse = false;
 let inputBuffer = '';
 let cursorOffset = 0;
+let lastPromptLinesCount = 1;
+
+function setIsWaitingResponse(val) {
+  isWaitingResponse = val;
+}
 
 let autocompleteVisible = false;
 let autocompleteOptions = [];
 let autocompleteSelectedIdx = 0;
 let autocompleteQuery = '';
+
+let historySelectionVisible = false;
+let historyOptions = [];
+let historySelectedIdx = 0;
+
+function showHistorySelection(historyItems, hasMore) {
+  historyOptions = historyItems.map(item => ({
+    display: item.title || 'Không có tiêu đề',
+    value: item.id
+  }));
+  
+  if (hasMore) {
+    historyOptions.push({
+      display: ' ❯ ⟳ Tải thêm cuộc hội thoại cũ hơn...',
+      value: 'load_more'
+    });
+  }
+  
+  historySelectionVisible = true;
+  historySelectedIdx = 0;
+  setIsWaitingResponse(true);
+  renderUI();
+}
 let autocompleteIndex = -1;
 
 // Trạng thái menu chọn mô hình (Model Selection)
 let modelSelectionVisible = false;
 let modelSelectedIdx = 0;
+
+// Trạng thái menu chọn chế độ suy nghĩ (Thinking Mode Selection)
+let thinkingSelectionVisible = false;
+let thinkingSelectedIdx = 0;
+const thinkingOptions = [
+  { display: 'Auto (Tự động)', value: 'auto' },
+  { display: 'Thinking (Suy nghĩ sâu)', value: 'thinking' },
+  { display: 'Fast (Trả lời nhanh)', value: 'fast' }
+];
+
 const modelOptions = [
   // Thế hệ 3.7
   { display: 'Qwen3.7-Plus', value: 'qwen3.7-plus' },
@@ -55,92 +93,235 @@ const modelOptions = [
 const slashCommands = [
   { display: '/model (Thay đổi mô hình chat)', value: '/model' },
   { display: '/m (Thay đổi mô hình chat)', value: '/m' },
+  { display: '/mode (Thay đổi chế độ suy nghĩ)', value: '/mode' },
+  { display: '/md (Thay đổi chế độ suy nghĩ)', value: '/md' },
+  { display: '/detail (Bật/tắt hiển thị suy nghĩ chi tiết)', value: '/detail' },
+  { display: '/dt (Bật/tắt hiển thị suy nghĩ chi tiết)', value: '/dt' },
   { display: '/websearch (Bật/tắt Tìm kiếm Web)', value: '/websearch' },
   { display: '/ws (Bật/tắt Tìm kiếm Web)', value: '/ws' },
+  { display: '/resume (Tiếp tục chat từ lịch sử)', value: '/resume' },
+  { display: '/rs (Tiếp tục chat từ lịch sử)', value: '/rs' },
   { display: '/exit (Thoát ứng dụng)', value: '/exit' }
 ];
 
 let lastMenuLength = 0;
 
-// Hàm vẽ giao diện Terminal Custom Prompt, Dropdown Autocomplete & Model Selector
-function renderUI() {
+function renderStatusBarOnly() {
   const rows = process.stdout.rows || 24;
-
-  // 1. Dọn dẹp các dòng menu cũ
-  const currentMenuLength = modelSelectionVisible 
-    ? modelOptions.length 
-    : (autocompleteVisible && autocompleteOptions.length > 0 ? autocompleteOptions.length : 0);
+  const cols = process.stdout.columns || 80;
   
-  if (lastMenuLength > currentMenuLength) {
-    for (let i = currentMenuLength; i < lastMenuLength; i++) {
-      const lineRow = rows - 1 - lastMenuLength + i;
-      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
-    }
-  }
-  lastMenuLength = currentMenuLength;
-
-  // 2. Vẽ dòng nhập liệu chính ghim ở dòng áp chót (rows - 1)
-  process.stdout.write(`\x1b[${rows - 1};1H\x1b[K`);
-  process.stdout.write(`\x1b[1m[You]:\x1b[0m ${inputBuffer}`);
-
-  // 3. Vẽ thanh trạng thái (Status Bar) ghim ở dòng cuối cùng (rows)
   process.stdout.write(`\x1b[${rows};1H\x1b[K`);
   const searchStatus = driver.getWebSearch() ? 'BẬT' : 'TẮT';
   
-  // Trích xuất tên hiển thị của model hiện tại
   const currentModelVal = driver.getModelName();
   const matchedModel = modelOptions.find(m => m.value === currentModelVal);
   const modelDisplayName = matchedModel ? matchedModel.display.split(' ')[0] : currentModelVal;
   
-  process.stdout.write(`\x1b[36mBuild\x1b[0m · \x1b[2mQwen Chat CLI\x1b[0m · Tìm kiếm Web: \x1b[1m${searchStatus}\x1b[0m · Model: \x1b[1m${modelDisplayName}\x1b[0m`);
+  const currentModeVal = driver.getThinkingMode();
+  const thinkingDisplayName = currentModeVal === 'fast' ? 'Fast' : (currentModeVal === 'thinking' ? 'Thinking' : 'Auto');
+  
+  const detailedStatus = driver.isDetailedThinking() ? 'BẬT' : 'TẮT';
+  
+  process.stdout.write(`\x1b[36mBuild\x1b[0m · \x1b[2mQwen Chat CLI\x1b[0m · Tìm kiếm Web: \x1b[1m${searchStatus}\x1b[0m · Suy nghĩ: \x1b[1m${thinkingDisplayName}\x1b[0m · Chi tiết: \x1b[1m${detailedStatus}\x1b[0m · Model: \x1b[1m${modelDisplayName}\x1b[0m`);
 
-  // 4. Vẽ menu chọn mô hình (Model Selector) nổi bật bằng màu nền (không râu ria viền, căng full chiều ngang)
+  // Phục hồi con trỏ gõ
+  const segments = getWrappedSegments(inputBuffer, cols);
+  let cursorLineIdx = 0;
+  let cursorCol = 0;
+  const firstLineLimit = cols - 7;
+  if (cursorOffset <= firstLineLimit) {
+    cursorLineIdx = 0;
+    cursorCol = 7 + cursorOffset;
+  } else {
+    let remainingOffset = cursorOffset - firstLineLimit;
+    cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
+    cursorCol = remainingOffset % cols;
+  }
+  if (cursorCol >= cols) {
+    cursorCol = 0;
+    cursorLineIdx += 1;
+  }
+  const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
+  const startRow = rows - 1 - (promptLinesCount - 1);
+  const cursorRow = startRow + cursorLineIdx;
+  process.stdout.write(`\x1b[${cursorRow};${cursorCol + 1}H`);
+}
+
+function getWrappedSegments(input, cols) {
+  const prefixLen = 7;
+  const segments = [];
+  
+  const firstLineLimit = cols - prefixLen;
+  if (input.length <= firstLineLimit) {
+    segments.push(input);
+    return segments;
+  }
+  
+  segments.push(input.substring(0, firstLineLimit));
+  let remaining = input.substring(firstLineLimit);
+  
+  while (remaining.length > 0) {
+    segments.push(remaining.substring(0, cols));
+    remaining = remaining.substring(cols);
+  }
+  
+  return segments;
+}
+
+// Hàm vẽ giao diện Terminal Custom Prompt, Dropdown Autocomplete & Model Selector
+function renderUI() {
+  const rows = process.stdout.rows || 24;
+  const cols = process.stdout.columns || 80;
+
+  // Tính toán số dòng của prompt hiện tại và vị trí con trỏ
+  const segments = getWrappedSegments(inputBuffer, cols);
+  
+  let cursorLineIdx = 0;
+  let cursorCol = 0;
+  
+  const firstLineLimit = cols - 7;
+  if (cursorOffset <= firstLineLimit) {
+    cursorLineIdx = 0;
+    cursorCol = 7 + cursorOffset;
+  } else {
+    let remainingOffset = cursorOffset - firstLineLimit;
+    cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
+    cursorCol = remainingOffset % cols;
+  }
+  
+  if (cursorCol >= cols) {
+    cursorCol = 0;
+    cursorLineIdx += 1;
+  }
+  
+  const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
+  screen.setPromptLinesCount(promptLinesCount);
+
+  // 1. Dọn dẹp các dòng menu cũ dựa trên vị trí cũ
+  const currentMenuLength = modelSelectionVisible 
+    ? modelOptions.length 
+    : (thinkingSelectionVisible
+      ? thinkingOptions.length
+      : (autocompleteVisible && autocompleteOptions.length > 0 ? autocompleteOptions.length : 0));
+  
+  const prevMenuStart = rows - 1 - (lastPromptLinesCount - 1) - lastMenuLength;
+  const currentMenuStart = rows - 1 - (promptLinesCount - 1) - currentMenuLength;
+  
+  const clearStartRow = Math.min(prevMenuStart, currentMenuStart);
+  const clearEndRow = rows - 1 - (promptLinesCount - 1) - 1;
+  
+  for (let r = clearStartRow; r <= clearEndRow; r++) {
+    process.stdout.write(`\x1b[${r};1H\x1b[K`);
+  }
+  
+  lastMenuLength = currentMenuLength;
+  lastPromptLinesCount = promptLinesCount;
+
+  // 2. Vẽ các dòng của prompt (ghim ở dưới cùng trước status bar)
+  const startRow = rows - 1 - (promptLinesCount - 1);
+  for (let i = 0; i < promptLinesCount; i++) {
+    const lineRow = startRow + i;
+    process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
+    if (i === 0) {
+      process.stdout.write(`\x1b[1m[You]:\x1b[0m ${segments[0] || ''}`);
+    } else {
+      process.stdout.write(segments[i] || '');
+    }
+  }
+
+  // 3. Vẽ thanh trạng thái (Status Bar) ghim ở dòng cuối cùng (rows)
+  renderStatusBarOnly();
+
+  // 4. Vẽ menu chọn mô hình (Model Selector) nổi bật bằng màu nền
   if (modelSelectionVisible) {
-    const cols = process.stdout.columns || 80;
     const contentWidth = Math.max(40, cols - 6); // Trừ đi khoảng lề trái/phải an toàn
     
     modelOptions.forEach((opt, idx) => {
-      const lineRow = rows - 1 - modelOptions.length + idx;
+      const lineRow = rows - 1 - (promptLinesCount - 1) - modelOptions.length + idx;
       process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
       
       const isSelected = idx === modelSelectedIdx;
-      // Dùng padEnd để kéo dài phần nền màu có cùng độ rộng cho tất cả các dòng
       const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
       
       if (isSelected) {
-        // Dòng được chọn: Nền cam chữ đen
         process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
       } else {
-        // Dòng không được chọn: Nền xám tối chữ xám sáng để tạo block thống nhất
         process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
       }
     });
   }
-  // 5. Vẽ menu gợi ý dropdown tệp tin (không râu ria viền, căng full chiều ngang)
+  // Vẽ menu chọn chế độ suy nghĩ (Thinking Selector)
+  else if (thinkingSelectionVisible) {
+    const contentWidth = Math.max(40, cols - 6);
+    
+    thinkingOptions.forEach((opt, idx) => {
+      const lineRow = rows - 1 - (promptLinesCount - 1) - thinkingOptions.length + idx;
+      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
+      
+      const isSelected = idx === thinkingSelectedIdx;
+      const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
+      
+      if (isSelected) {
+        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
+      } else {
+        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
+      }
+    });
+  }
+  // 5. Vẽ menu gợi ý dropdown tệp tin
   else if (autocompleteVisible && autocompleteOptions.length > 0) {
     const menuLength = autocompleteOptions.length;
-    const cols = process.stdout.columns || 80;
-    const contentWidth = Math.max(40, cols - 6); // Trừ đi khoảng lề trái/phải an toàn
+    const contentWidth = Math.max(40, cols - 6);
     
     autocompleteOptions.forEach((opt, idx) => {
-      const lineRow = rows - 1 - menuLength + idx;
+      const lineRow = rows - 1 - (promptLinesCount - 1) - menuLength + idx;
       process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
       
       const isSelected = idx === autocompleteSelectedIdx;
       const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
       
       if (isSelected) {
-        // Dòng được chọn: Nền cam chữ đen
         process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
       } else {
-        // Dòng không được chọn: Nền xám tối chữ xám sáng để tạo block thống nhất
+        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
+      }
+    });
+  }
+  // Vẽ menu chọn lịch sử (History Selector)
+  else if (historySelectionVisible) {
+    const contentWidth = Math.max(40, cols - 6);
+    const maxVisibleOptions = 10;
+    let startIdx = 0;
+    if (historyOptions.length > maxVisibleOptions) {
+      startIdx = Math.max(0, historySelectedIdx - Math.floor(maxVisibleOptions / 2));
+      if (startIdx + maxVisibleOptions > historyOptions.length) {
+        startIdx = historyOptions.length - maxVisibleOptions;
+      }
+    }
+    const visibleOptions = historyOptions.slice(startIdx, startIdx + maxVisibleOptions);
+    
+    visibleOptions.forEach((opt, idx) => {
+      const actualIdx = startIdx + idx;
+      const lineRow = rows - 1 - (promptLinesCount - 1) - visibleOptions.length + idx;
+      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
+      
+      const isSelected = actualIdx === historySelectedIdx;
+      const displayTitle = opt.display.length > contentWidth - 8
+        ? opt.display.substring(0, contentWidth - 11) + '...'
+        : opt.display;
+      const paddedText = displayTitle.padEnd(contentWidth - 3, ' ');
+      
+      if (isSelected) {
+        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
+      } else {
         process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
       }
     });
   }
 
-  // 6. Đặt vị trí con trỏ nhấp nháy đúng cột đang gõ ở dòng rows-1 (label "[You]: " dài 7 ký tự)
-  process.stdout.write(`\x1b[${rows - 1};${7 + cursorOffset + 1}H`);
+  // 6. Đặt vị trí con trỏ nhấp nháy đúng dòng và cột của nó
+  const cursorRow = startRow + cursorLineIdx;
+  process.stdout.write(`\x1b[${cursorRow};${cursorCol + 1}H`);
 }
 
 // Quét thư mục hoặc danh sách lệnh tìm gợi ý tương ứng
@@ -313,8 +494,11 @@ function formatUserPromptBlock(text, cols) {
   return resultLines.join('\n') + '\n';
 }
 
+let currentOnResumeChat = null;
+
 // Đăng ký sự kiện lắng nghe bàn phím
-function setupTerminalInput(onSendMessage) {
+function setupTerminalInput(onSendMessage, onResumeChat) {
+  currentOnResumeChat = onResumeChat;
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
@@ -327,15 +511,35 @@ function setupTerminalInput(onSendMessage) {
       await screen.shutdownTUI();
     }
 
-    // 2. Phím cuộn trang PageUp/PageDown
-    if (key && key.name === 'pageup') {
+    // Phím tắt ctrl+d hoặc ctrl+t để bật/tắt hiển thị suy nghĩ chi tiết
+    if (key && key.ctrl && (key.name === 'd' || key.name === 't')) {
+      const newState = driver.toggleDetailedThinking();
+      screen.consoleLog(`[Hệ thống] Hiển thị suy nghĩ chi tiết đã được: ${newState ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
+      renderUI();
+      return;
+    }
+
+    // 2. Phím cuộn trang PageUp/PageDown và Mũi tên Lên/Xuống
+    if (key && key.name === 'pageup' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible) {
       screen.setScrollOffset(screen.getScrollOffset() + 5);
       screen.refreshScrollRegion();
       renderUI();
       return;
     }
-    if (key && key.name === 'pagedown') {
+    if (key && key.name === 'pagedown' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible) {
       screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 5));
+      screen.refreshScrollRegion();
+      renderUI();
+      return;
+    }
+    if (key && key.name === 'up' && !autocompleteVisible && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && inputBuffer === '') {
+      screen.setScrollOffset(screen.getScrollOffset() + 1);
+      screen.refreshScrollRegion();
+      renderUI();
+      return;
+    }
+    if (key && key.name === 'down' && !autocompleteVisible && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && inputBuffer === '') {
+      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 1));
       screen.refreshScrollRegion();
       renderUI();
       return;
@@ -355,7 +559,7 @@ function setupTerminalInput(onSendMessage) {
       }
       if (key && key.name === 'escape') {
         modelSelectionVisible = false;
-        isWaitingResponse = false;
+        setIsWaitingResponse(false);
         
         // Vẽ lại vùng cuộn lịch sử chat khi tắt menu
         screen.refreshScrollRegion();
@@ -369,11 +573,79 @@ function setupTerminalInput(onSendMessage) {
         screen.consoleLog(`[Hệ thống] Đã chuyển sang mô hình: \x1b[1m${selectedModel.display}\x1b[0m`);
         
         modelSelectionVisible = false;
-        isWaitingResponse = false;
+        setIsWaitingResponse(false);
         renderUI();
         return;
       }
       return; // Khóa toàn bộ các phím bấm khác khi đang trong menu chọn model
+    }
+
+    // Logic xử lý phím bấm khi menu chọn chế độ suy nghĩ (Thinking Selection) đang mở
+    if (thinkingSelectionVisible) {
+      if (key && (key.name === 'down' || (key.name === 'tab' && !key.shift))) {
+        thinkingSelectedIdx = (thinkingSelectedIdx + 1) % thinkingOptions.length;
+        renderUI();
+        return;
+      }
+      if (key && (key.name === 'up' || (key.name === 'tab' && key.shift))) {
+        thinkingSelectedIdx = (thinkingSelectedIdx - 1 + thinkingOptions.length) % thinkingOptions.length;
+        renderUI();
+        return;
+      }
+      if (key && key.name === 'escape') {
+        thinkingSelectionVisible = false;
+        setIsWaitingResponse(false);
+        
+        screen.refreshScrollRegion();
+        renderUI();
+        return;
+      }
+      if (key && (key.name === 'enter' || key.name === 'return')) {
+        const selectedMode = thinkingOptions[thinkingSelectedIdx];
+        await driver.setThinkingMode(selectedMode.value);
+        
+        screen.consoleLog(`[Hệ thống] Đã chuyển sang chế độ suy nghĩ: \x1b[1m${selectedMode.display}\x1b[0m`);
+        
+        thinkingSelectionVisible = false;
+        setIsWaitingResponse(false);
+        renderUI();
+        return;
+      }
+      return; // Khóa toàn bộ các phím bấm khác khi đang trong menu chọn chế độ
+    }
+
+    // Logic xử lý phím bấm khi menu chọn lịch sử cuộc trò chuyện (History Selection) đang mở
+    if (historySelectionVisible) {
+      if (key && (key.name === 'down' || (key.name === 'tab' && !key.shift))) {
+        historySelectedIdx = (historySelectedIdx + 1) % historyOptions.length;
+        renderUI();
+        return;
+      }
+      if (key && (key.name === 'up' || (key.name === 'tab' && key.shift))) {
+        historySelectedIdx = (historySelectedIdx - 1 + historyOptions.length) % historyOptions.length;
+        renderUI();
+        return;
+      }
+      if (key && key.name === 'escape') {
+        historySelectionVisible = false;
+        setIsWaitingResponse(false);
+        screen.refreshScrollRegion();
+        renderUI();
+        return;
+      }
+      if (key && (key.name === 'enter' || key.name === 'return')) {
+        const selectedChat = historyOptions[historySelectedIdx];
+        if (selectedChat.value !== 'load_more') {
+          historySelectionVisible = false;
+          setIsWaitingResponse(false);
+          renderUI();
+        }
+        if (currentOnResumeChat) {
+          currentOnResumeChat(selectedChat.value);
+        }
+        return;
+      }
+      return; // Khóa phím khác
     }
 
     if (isWaitingResponse) return;
@@ -408,19 +680,7 @@ function setupTerminalInput(onSendMessage) {
       }
     }
 
-    // 5. Phím Mũi tên Lên/Xuống khi ô nhập liệu trống để cuộn dòng lịch sử
-    if (key && key.name === 'up' && !autocompleteVisible && inputBuffer === '') {
-      screen.setScrollOffset(screen.getScrollOffset() + 1);
-      screen.refreshScrollRegion();
-      renderUI();
-      return;
-    }
-    if (key && key.name === 'down' && !autocompleteVisible && inputBuffer === '') {
-      screen.setScrollOffset(Math.max(0, screen.getScrollOffset() - 1));
-      screen.refreshScrollRegion();
-      renderUI();
-      return;
-    }
+
 
     // 6. Xử lý Enter gửi tin nhắn chính thức
     if (key && (key.name === 'enter' || key.name === 'return')) {
@@ -434,7 +694,20 @@ function setupTerminalInput(onSendMessage) {
         
         modelSelectionVisible = true;
         modelSelectedIdx = 0;
-        isWaitingResponse = true; // Khóa keyboard gõ thường
+        setIsWaitingResponse(true); // Khóa keyboard gõ thường
+        
+        renderUI();
+        return;
+      }
+
+      // Xử lý các lệnh thay đổi chế độ suy nghĩ: /mode hoặc /md
+      if (trimmed === '/mode' || trimmed === '/md') {
+        inputBuffer = '';
+        cursorOffset = 0;
+        
+        thinkingSelectionVisible = true;
+        thinkingSelectedIdx = 0;
+        setIsWaitingResponse(true); // Khóa keyboard gõ thường
         
         renderUI();
         return;
@@ -445,7 +718,7 @@ function setupTerminalInput(onSendMessage) {
       autocompleteVisible = false;
       
       // Khóa nhập liệu và reset offset cuộn
-      isWaitingResponse = true;
+      setIsWaitingResponse(true);
       screen.setScrollOffset(0);
       
       // Hiển thị câu hỏi của người dùng dưới dạng khối background nổi bật
@@ -485,6 +758,19 @@ function setupTerminalInput(onSendMessage) {
       return;
     }
 
+    // 9. Phím di chuyển con trỏ Home/End
+    if (key && key.name === 'home') {
+      cursorOffset = 0;
+      renderUI();
+      return;
+    }
+
+    if (key && key.name === 'end') {
+      cursorOffset = inputBuffer.length;
+      renderUI();
+      return;
+    }
+
     // 9. Nhập chữ viết thông thường
     if (str && !key.ctrl && !key.meta && key.name !== 'escape') {
       if (str === '\r' || str === '\n' || str === '\b') return;
@@ -505,5 +791,7 @@ function setupTerminalInput(onSendMessage) {
 module.exports = {
   renderUI,
   setupTerminalInput,
-  setIsWaitingResponse: (val) => { isWaitingResponse = val; }
+  setIsWaitingResponse,
+  showHistorySelection,
+  formatUserPromptBlock
 };
