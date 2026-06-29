@@ -290,6 +290,21 @@ async function sendPrompt(promptText) {
   }
 }
 
+let currentModelName = 'qwen3.7-plus';
+
+async function setModelName(modelName) {
+  currentModelName = modelName;
+  if (page) {
+    await page.evaluate((mName) => {
+      window.__qwenModelName = mName;
+    }, currentModelName);
+  }
+}
+
+function getModelName() {
+  return currentModelName;
+}
+
 async function closeBrowser() {
   if (browser) {
     await browser.close().catch(() => {});
@@ -305,5 +320,7 @@ module.exports = {
   closeBrowser,
   setWebSearch,
   getWebSearch,
-  uploadFile
+  uploadFile,
+  setModelName,
+  getModelName
 };

@@ -9,9 +9,12 @@ const INIT_SCRIPT = (token) => `(function() {
     console.error('Lỗi set localStorage token:', e);
   }
 
-  // Mặc định ban đầu TẮT Web Search, chỉ bật khi có lệnh từ CLI
+  // Mặc định ban đầu TẮT Web Search và chọn model qwen3.7-plus
   if (window.__qwenWebSearchEnabled === undefined) {
     window.__qwenWebSearchEnabled = false;
+  }
+  if (window.__qwenModelName === undefined) {
+    window.__qwenModelName = 'qwen3.7-plus';
   }
 
   if (window.__teeInstalled) return;
@@ -26,14 +29,20 @@ const INIT_SCRIPT = (token) => `(function() {
     if (url.indexOf('/api/v2/chat/completions') >= 0 && arguments[1] && arguments[1].body) {
       try {
         const bodyObj = JSON.parse(arguments[1].body);
-        if (bodyObj && bodyObj.messages) {
-          bodyObj.messages.forEach(msg => {
-            if (msg.role === 'user') {
-              if (!msg.feature_config) msg.feature_config = {};
-              // Ghi đè cấu hình tìm kiếm web theo cài đặt từ CLI
-              msg.feature_config.auto_search = !!window.__qwenWebSearchEnabled;
-            }
-          });
+        if (bodyObj) {
+          // Ghi đè model name theo cấu hình từ CLI
+          if (window.__qwenModelName) {
+            bodyObj.model = window.__qwenModelName;
+          }
+          if (bodyObj.messages) {
+            bodyObj.messages.forEach(msg => {
+              if (msg.role === 'user') {
+                if (!msg.feature_config) msg.feature_config = {};
+                // Ghi đè cấu hình tìm kiếm web theo cài đặt từ CLI
+                msg.feature_config.auto_search = !!window.__qwenWebSearchEnabled;
+              }
+            });
+          }
           arguments[1].body = JSON.stringify(bodyObj);
         }
       } catch (err) {

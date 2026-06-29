@@ -43,9 +43,12 @@ Các tính năng điều khiển và định dạng nhập liệu.
   - [ ] **Artifacts**: Hiển thị mã nguồn/văn bản trực quan (tương tự Claude Artifacts).
   - [ ] **Learn**: Trợ lý học tập chuyên biệt.
   - [ ] **Travel Planner**: Lên kế hoạch du lịch.
-- [x] **Nhập liệu & Gửi tin nhắn (Prompt Input)**
+- [/] **Nhập liệu & Gửi tin nhắn (Prompt Input)**
   - [x] Điền prompt vào `textarea` thông qua Playwright API chuẩn (`page.fill`) để kích hoạt state React.
   - [x] Nhấn Enter giả lập (`page.press`) để gửi tin nhắn đi.
+  - [x] **Interactive TUI Prompt**: Ghim ô nhập liệu ghim đáy (`Bottom Pinned`) và thanh trạng thái (`Status Bar`) cố định ở dòng dưới cùng của Terminal, tự động co giãn kích thước và dọn dẹp sạch sẽ khi thoát.
+  - [x] **Dropdown Autocomplete**: Gợi ý tệp/thư mục qua ký tự `@` hiển thị menu nổi bật nền cam di chuyển bằng TAB/Mũi tên và tự động dọn dẹp sạch sẽ khi chọn xong.
+  - [x] **Drag & Drop Auto-detect**: Tự động nhận diện và chuyển đổi đường dẫn file/folder khi kéo thả hoặc paste trực tiếp vào Terminal sang dạng đính kèm `@path`.
   - [ ] Nhập liệu bằng giọng nói (Voice/Microphone Input).
 - [x] **Hiển thị & Parse Stream (Stream Response)**
   - [x] Parse stream SSE và in trực tiếp ra console theo thời gian thực (real-time stream).
