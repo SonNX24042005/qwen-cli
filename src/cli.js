@@ -646,6 +646,10 @@ async function handleUserMessage(inputText) {
         editor.setIsWaitingResponse(false);
         editor.renderUI();
       }
+      return;
+    }
+  }
+
   // Xử lý lệnh tự động cập nhật phần mềm từ trong phiên chat
   if (trimmedInput === '/update' || trimmedInput === '/up') {
     screen.shutdownTUI();

@@ -10,6 +10,7 @@ let isWaitingResponse = false;
 let inputBuffer = '';
 let cursorOffset = 0;
 let lastPromptLinesCount = 1;
+let lastStatusBarHeight = 1;
 
 function setIsWaitingResponse(val) {
   isWaitingResponse = val;
@@ -124,7 +125,7 @@ function drawTopBorder(boxWidth, title) {
   }
 }
 
-function renderBoxedMenu(rows, promptLinesCount, items, selectedIdx, title, getDisplay) {
+function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selectedIdx, title, getDisplay) {
   const terminalRows = process.stdout.rows || 24;
   const terminalCols = process.stdout.columns || 80;
   const boxWidth = Math.max(40, terminalCols - 8);
@@ -132,13 +133,13 @@ function renderBoxedMenu(rows, promptLinesCount, items, selectedIdx, title, getD
   const menuLength = items.length;
 
   // 1. Draw Top Border
-  const topBorderRow = terminalRows - 1 - (promptLinesCount - 1) - (menuLength + 2);
+  const topBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2);
   process.stdout.write(`\x1b[${topBorderRow};1H\x1b[K`);
   process.stdout.write(drawTopBorder(boxWidth, title));
 
   // 2. Draw Items
   items.forEach((item, idx) => {
-    const lineRow = terminalRows - 1 - (promptLinesCount - 1) - (menuLength + 2) + 1 + idx;
+    const lineRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2) + 1 + idx;
     process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
     
     const isSelected = idx === selectedIdx;
@@ -156,16 +157,15 @@ function renderBoxedMenu(rows, promptLinesCount, items, selectedIdx, title, getD
   });
 
   // 3. Draw Bottom Border
-  const bottomBorderRow = terminalRows - 1 - (promptLinesCount - 1) - 1;
+  const bottomBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - 1;
   process.stdout.write(`\x1b[${bottomBorderRow};1H\x1b[K`);
   process.stdout.write('  └' + '─'.repeat(boxWidth - 4) + '┘');
 }
 
-function renderStatusBarOnly() {
+function renderStatusBarOnly(statusBarHeight = 1) {
   const rows = process.stdout.rows || 24;
   const cols = process.stdout.columns || 80;
   
-  process.stdout.write(`\x1b[${rows};1H\x1b[K`);
   const searchStatus = driver.getWebSearch() 
     ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m' 
     : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
@@ -190,38 +190,63 @@ function renderStatusBarOnly() {
     ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m'
     : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
   
-  // Xây dựng thanh trạng thái động tránh tràn màn hình (wrapping)
-  let barItems = [];
-  const isCompact = cols < 110;
-  const isSuperCompact = cols < 85;
-
-  const searchLabel = isCompact ? '🌐 Web:' : '🌐 Tìm kiếm:';
-  const thinkingLabel = isCompact ? '🧠' : '🧠 Suy nghĩ:';
-  const detailedLabel = isCompact ? '⚙️' : '⚙️ Chi tiết:';
-  const modelLabel = isCompact ? '🤖' : '🤖 Model:';
-  const exportLabel = isCompact ? '💾' : '💾 Xuất:';
-
-  if (cols >= 120) {
-    barItems.push(`💻 Qwen CLI`);
-  }
-  barItems.push(`${searchLabel} ${searchStatus}`);
-  barItems.push(`${thinkingLabel} ${thinkingDisplay}`);
-  
-  if (!isSuperCompact) {
-    barItems.push(`${detailedLabel} ${detailedStatus}`);
-  }
-  
-  barItems.push(`${modelLabel} ${modelDisplay}`);
-  barItems.push(`${exportLabel} ${exportStatus}`);
-
-  const barText = ' ' + barItems.join(' │ ') + ' ';
-  
-  // Calculate padding based on visible text length
   const ansiRegex = /\u001b\[[0-9;]*m/g;
-  const visibleLen = barText.replace(ansiRegex, '').length;
-  const paddingLen = Math.max(0, cols - visibleLen);
-  
-  process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${barText}${' '.repeat(paddingLen)}\x1b[0m`);
+
+  if (statusBarHeight === 2) {
+    const isCompact = cols < 70;
+    const searchLabel = isCompact ? '🌐 Web:' : '🌐 Tìm kiếm:';
+    const thinkingLabel = isCompact ? '🧠' : '🧠 Suy nghĩ:';
+    const detailedLabel = isCompact ? '⚙️' : '⚙️ Chi tiết:';
+    const modelLabel = isCompact ? '🤖' : '🤖 Model:';
+    const exportLabel = isCompact ? '💾' : '💾 Xuất:';
+
+    const line1Items = [];
+    if (cols >= 65) {
+      line1Items.push(`💻 Qwen CLI`);
+    }
+    line1Items.push(`${searchLabel} ${searchStatus}`);
+    line1Items.push(`${thinkingLabel} ${thinkingDisplay}`);
+    const line1Text = ' ' + line1Items.join(' │ ') + ' ';
+    const line1VisibleLen = line1Text.replace(ansiRegex, '').length;
+    const line1Padding = Math.max(0, cols - line1VisibleLen);
+
+    const line2Items = [
+      `${detailedLabel} ${detailedStatus}`,
+      `${modelLabel} ${modelDisplay}`,
+      `${exportLabel} ${exportStatus}`
+    ];
+    const line2Text = ' ' + line2Items.join(' │ ') + ' ';
+    const line2VisibleLen = line2Text.replace(ansiRegex, '').length;
+    const line2Padding = Math.max(0, cols - line2VisibleLen);
+
+    // Draw Line 1 at rows - 1
+    process.stdout.write(`\x1b[${rows - 1};1H\x1b[K`);
+    process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${line1Text}${' '.repeat(line1Padding)}\x1b[0m`);
+
+    // Draw Line 2 at rows
+    process.stdout.write(`\x1b[${rows};1H\x1b[K`);
+    process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${line2Text}${' '.repeat(line2Padding)}\x1b[0m`);
+  } else {
+    // Single line status bar
+    const lineItems = [];
+    if (cols >= 120) {
+      lineItems.push(`💻 Qwen CLI`);
+    }
+    lineItems.push(`🌐 Tìm kiếm: ${searchStatus}`);
+    lineItems.push(`🧠 Suy nghĩ: ${thinkingDisplay}`);
+    if (cols >= 95) {
+      lineItems.push(`⚙️ Chi tiết: ${detailedStatus}`);
+    }
+    lineItems.push(`🤖 Model: ${modelDisplay}`);
+    lineItems.push(`💾 Xuất: ${exportStatus}`);
+
+    const lineText = ' ' + lineItems.join(' │ ') + ' ';
+    const lineVisibleLen = lineText.replace(ansiRegex, '').length;
+    const linePadding = Math.max(0, cols - lineVisibleLen);
+
+    process.stdout.write(`\x1b[${rows};1H\x1b[K`);
+    process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${lineText}${' '.repeat(linePadding)}\x1b[0m`);
+  }
 
   // Phục hồi con trỏ gõ
   const segments = getWrappedSegments(inputBuffer, cols);
@@ -241,7 +266,7 @@ function renderStatusBarOnly() {
     cursorLineIdx += 1;
   }
   const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
-  const startRow = rows - 1 - (promptLinesCount - 1);
+  const startRow = rows - statusBarHeight - (promptLinesCount - 1);
   const cursorRow = startRow + cursorLineIdx;
   process.stdout.write(`\x1b[${cursorRow};${cursorCol + 1}H`);
 }
@@ -271,6 +296,10 @@ function getWrappedSegments(input, cols) {
 function renderUI() {
   const rows = process.stdout.rows || 24;
   const cols = process.stdout.columns || 80;
+
+  // Tính toán độ cao thanh trạng thái động (nếu màn hình hẹp thì hiển thị 2 dòng)
+  const statusBarHeight = cols < 95 ? 2 : 1;
+  screen.setStatusBarHeight(statusBarHeight);
 
   // Tính toán số dòng của prompt hiện tại và vị trí con trỏ
   const segments = getWrappedSegments(inputBuffer, cols);
@@ -307,11 +336,11 @@ function renderUI() {
             ? (Math.min(10, historyOptions.length) + 2) 
             : 0)));
   
-  const prevMenuStart = rows - 1 - (lastPromptLinesCount - 1) - lastMenuLength;
-  const currentMenuStart = rows - 1 - (promptLinesCount - 1) - currentMenuLength;
+  const prevMenuStart = rows - lastStatusBarHeight - (lastPromptLinesCount - 1) - lastMenuLength;
+  const currentMenuStart = rows - statusBarHeight - (promptLinesCount - 1) - currentMenuLength;
   
   const clearStartRow = Math.min(prevMenuStart, currentMenuStart);
-  const clearEndRow = rows - 1 - (promptLinesCount - 1) - 1;
+  const clearEndRow = rows - statusBarHeight - (promptLinesCount - 1) - 1;
   
   for (let r = clearStartRow; r <= clearEndRow; r++) {
     process.stdout.write(`\x1b[${r};1H\x1b[K`);
@@ -319,9 +348,10 @@ function renderUI() {
   
   lastMenuLength = currentMenuLength;
   lastPromptLinesCount = promptLinesCount;
+  lastStatusBarHeight = statusBarHeight;
 
   // 2. Vẽ các dòng của prompt (ghim ở dưới cùng trước status bar)
-  const startRow = rows - 1 - (promptLinesCount - 1);
+  const startRow = rows - statusBarHeight - (promptLinesCount - 1);
   for (let i = 0; i < promptLinesCount; i++) {
     const lineRow = startRow + i;
     process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
@@ -332,14 +362,15 @@ function renderUI() {
     }
   }
 
-  // 3. Vẽ thanh trạng thái (Status Bar) ghim ở dòng cuối cùng (rows)
-  renderStatusBarOnly();
+  // 3. Vẽ thanh trạng thái (Status Bar) ghim ở dưới cùng
+  renderStatusBarOnly(statusBarHeight);
 
   // 4. Vẽ menu chọn mô hình (Model Selector) nổi bật bằng khung viền
   if (modelSelectionVisible) {
     renderBoxedMenu(
       rows,
       promptLinesCount,
+      statusBarHeight,
       modelOptions,
       modelSelectedIdx,
       ' Chọn Mô Hình ',
@@ -351,6 +382,7 @@ function renderUI() {
     renderBoxedMenu(
       rows,
       promptLinesCount,
+      statusBarHeight,
       thinkingOptions,
       thinkingSelectedIdx,
       ' Chế Độ Suy Nghĩ ',
@@ -363,6 +395,7 @@ function renderUI() {
     renderBoxedMenu(
       rows,
       promptLinesCount,
+      statusBarHeight,
       autocompleteOptions,
       autocompleteSelectedIdx,
       isCommand ? ' Danh Sách Lệnh ' : ' Gợi Ý Tệp Tin ',
@@ -384,6 +417,7 @@ function renderUI() {
     renderBoxedMenu(
       rows,
       promptLinesCount,
+      statusBarHeight,
       visibleOptions,
       historySelectedIdx - startIdx,
       ' Lịch Sử Cuộc Trò Chuyện ',

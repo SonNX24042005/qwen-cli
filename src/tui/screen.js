@@ -9,6 +9,7 @@ let scrollOffset = 0;
 // Callback dùng để render ô nhập liệu khi cuộn/resize màn hình
 let renderUICallback = () => {};
 let promptLinesCount = 1;
+let statusBarHeight = 1;
 
 let resizeCallback = null;
 
@@ -66,7 +67,16 @@ function setPromptLinesCount(count) {
   if (promptLinesCount !== count) {
     promptLinesCount = count;
     const rows = process.stdout.rows || 24;
-    process.stdout.write(`\x1b[1;${rows - 1 - promptLinesCount}r`);
+    process.stdout.write(`\x1b[1;${rows - statusBarHeight - promptLinesCount}r`);
+    refreshScrollRegion();
+  }
+}
+
+function setStatusBarHeight(height) {
+  if (statusBarHeight !== height) {
+    statusBarHeight = height;
+    const rows = process.stdout.rows || 24;
+    process.stdout.write(`\x1b[1;${rows - statusBarHeight - promptLinesCount}r`);
     refreshScrollRegion();
   }
 }
@@ -78,7 +88,7 @@ function setRenderUICallback(cb) {
 // Hàm vẽ lại vùng cuộn dựa trên chiều cao terminal hiện tại và scrollOffset
 function refreshScrollRegion() {
   const rows = process.stdout.rows || 24;
-  const maxLines = rows - 1 - promptLinesCount; // Chiều cao tối đa của vùng cuộn
+  const maxLines = rows - statusBarHeight - promptLinesCount; // Chiều cao tối đa của vùng cuộn
 
   const allLines = scrollContentBuffer.split('\n');
   if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
@@ -95,8 +105,8 @@ function refreshScrollRegion() {
   const endIdx = allLines.length - scrollOffset;
   const visibleLines = allLines.slice(startIdx, endIdx);
 
-  // 1. Xóa sạch vùng cuộn (từ dòng 1 đến rows - 1 - promptLinesCount)
-  for (let i = 1; i <= rows - 1 - promptLinesCount; i++) {
+  // 1. Xóa sạch vùng cuộn (từ dòng 1 đến rows - statusBarHeight - promptLinesCount)
+  for (let i = 1; i <= rows - statusBarHeight - promptLinesCount; i++) {
     process.stdout.write(`\x1b[${i};1H\x1b[K`);
   }
 
@@ -105,8 +115,8 @@ function refreshScrollRegion() {
     process.stdout.write(`\x1b[${idx + 1};1H${line}`);
   });
 
-  // 3. Đặt con trỏ in ấn ở dòng rows - 1 - promptLinesCount và lưu lại vị trí
-  process.stdout.write(`\x1b[${rows - 1 - promptLinesCount};1H\x1b[s`);
+  // 3. Đặt con trỏ in ấn ở dòng rows - statusBarHeight - promptLinesCount và lưu lại vị trí
+  process.stdout.write(`\x1b[${rows - statusBarHeight - promptLinesCount};1H\x1b[s`);
 }
 
 // Hàm in nội dung an toàn vào Vùng cuộn (Scroll Region)
@@ -145,8 +155,8 @@ function initTUI() {
   
   process.stdout.write('\x1b[?1049h'); // Bật Alternate Screen Buffer
   process.stdout.write('\x1b[2J\x1b[3J\x1b[H'); // Xóa sạch màn hình đệm
-  process.stdout.write(`\x1b[1;${rows - 1 - promptLinesCount}r`); // Khóa vùng cuộn
-  process.stdout.write(`\x1b[${rows - 1 - promptLinesCount};1H\x1b[s`); // Đặt và lưu con trỏ in ấn
+  process.stdout.write(`\x1b[1;${rows - statusBarHeight - promptLinesCount}r`); // Khóa vùng cuộn
+  process.stdout.write(`\x1b[${rows - statusBarHeight - promptLinesCount};1H\x1b[s`); // Đặt và lưu con trỏ in ấn
 
   // Chuyển hướng console.log/warn/error để không làm hỏng TUI
   console.log = (...args) => {
@@ -165,7 +175,7 @@ function initTUI() {
   // Lắng nghe sự kiện Resize để co giãn vùng cuộn theo cửa sổ Terminal
   process.stdout.on('resize', () => {
     const r = process.stdout.rows || 24;
-    process.stdout.write(`\x1b[1;${r - 1 - promptLinesCount}r`);
+    process.stdout.write(`\x1b[1;${r - statusBarHeight - promptLinesCount}r`);
     if (resizeCallback) {
       resizeCallback();
     } else {
@@ -200,6 +210,7 @@ module.exports = {
   getScrollContentBuffer: () => scrollContentBuffer,
   setScrollContentBuffer: (val) => { scrollContentBuffer = val; },
   setPromptLinesCount,
+  setStatusBarHeight,
   startThinkingSpinner,
   stopThinkingSpinner,
   setResizeCallback
