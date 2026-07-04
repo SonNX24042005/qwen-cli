@@ -323,14 +323,15 @@ function renderUI() {
       (opt) => opt.display
     );
   }
-  // 5. Vẽ menu gợi ý dropdown tệp tin
+  // 5. Vẽ menu gợi ý dropdown tệp tin hoặc câu lệnh
   else if (autocompleteVisible && autocompleteOptions.length > 0) {
+    const isCommand = autocompleteOptions[0] && autocompleteOptions[0].isCommand;
     renderBoxedMenu(
       rows,
       promptLinesCount,
       autocompleteOptions,
       autocompleteSelectedIdx,
-      ' Gợi Ý Tệp Tin ',
+      isCommand ? ' Danh Sách Lệnh ' : ' Gợi Ý Tệp Tin ',
       (opt) => opt.display
     );
   }
