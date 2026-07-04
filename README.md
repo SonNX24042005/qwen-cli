@@ -8,27 +8,44 @@ Dự án được trang bị giao diện người dùng tương tác **TUI (Term
 
 ## 🚀 Hướng dẫn Cài đặt & Sử dụng toàn cục (Khuyên dùng)
 
-Để cài đặt ứng dụng dòng lệnh toàn cục và sử dụng từ bất kỳ thư mục nào trên máy tính giống như Claude Code, bạn có thể chọn một trong hai cách:
+Để cài đặt ứng dụng dòng lệnh toàn cục và sử dụng từ bất kỳ thư mục nào trên máy tính giống như Claude Code:
 
-### Cách 1: Sử dụng Script tải trực tiếp (Một dòng lệnh)
-Nếu dự án đã được đẩy lên GitHub, bạn hoặc người sử dụng có thể mở terminal ở bất kỳ đâu và chạy lệnh sau để tải và tự động cài đặt:
+### 1. Trên Linux & macOS (Linux / macOS)
+Bạn có thể chọn một trong hai cách:
+*   **Cách 1: Sử dụng Script tải trực tiếp (Một dòng lệnh)**:
+    Mở terminal ở bất kỳ đâu và chạy lệnh sau để tự động tải và cài đặt:
+    ```bash
+    curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=$(date +%s)" | bash
+    ```
+*   **Cách 2: Cài đặt từ thư mục mã nguồn cục bộ**:
+    Mở terminal tại thư mục dự án và chạy:
+    ```bash
+    npm install -g .
+    ```
+
+---
+
+### 2. Trên Windows (Windows Command Prompt / PowerShell)
+Bạn có thể chọn một trong hai cách:
+*   **Cách 1: Sử dụng PowerShell tải trực tiếp (Một dòng lệnh)**:
+    Mở cửa sổ PowerShell và chạy lệnh sau để tự động cài đặt:
+    ```powershell
+    iwr -useb "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1" | iex
+    ```
+*   **Cách 2: Cài đặt từ thư mục mã nguồn cục bộ**:
+    Mở terminal (cmd hoặc PowerShell) tại thư mục dự án và chạy:
+    ```cmd
+    npm install -g .
+    ```
+
+---
+
+### 3. Khởi chạy ứng dụng
+Sau khi cài đặt xong theo một trong các cách trên, bạn mở một Terminal mới ở bất kỳ thư mục nào trên máy tính và chỉ cần gõ:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh | bash
+qwen-cli
 ```
-
-### Cách 2: Cài đặt từ thư mục mã nguồn cục bộ
-Nếu bạn đã clone sẵn dự án về máy:
-1. Mở terminal tại thư mục dự án và chạy:
-   ```bash
-   npm install -g .
-   ```
-   *(CLI sẽ tự động cài đặt các dependencies. Trình duyệt Chromium sẽ được tự động tải về trong lần khởi chạy đầu tiên).*
-
-2. **Khởi chạy ứng dụng**:
-   Tại bất kỳ thư mục nào trên máy tính, chỉ cần mở terminal và chạy:
-   ```bash
-   qwen-cli
-   ```
+*(CLI sẽ tự động cài đặt các dependencies. Trình duyệt Chromium cho Playwright sẽ được tự động tải về ở lần khởi chạy đầu tiên).*
 
 ---
 
