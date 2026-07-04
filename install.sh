@@ -64,6 +64,9 @@ fi
 echo -e "Đang tải các thư viện phụ thuộc..."
 npm install
 
+# Đảm bảo file chạy chính có quyền thực thi
+chmod +x src/cli.js
+
 # Chạy cài đặt toàn cục
 if [ "$EUID" -ne 0 ]; then
     # Nếu không phải root, thử cài đặt trực tiếp, nếu lỗi quyền thì thử sudo
