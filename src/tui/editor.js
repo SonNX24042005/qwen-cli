@@ -193,10 +193,10 @@ function renderStatusBarOnly() {
   const segments = getWrappedSegments(inputBuffer, cols);
   let cursorLineIdx = 0;
   let cursorCol = 0;
-  const firstLineLimit = cols - 7;
+  const firstLineLimit = cols - 5;
   if (cursorOffset <= firstLineLimit) {
     cursorLineIdx = 0;
-    cursorCol = 7 + cursorOffset;
+    cursorCol = 5 + cursorOffset;
   } else {
     let remainingOffset = cursorOffset - firstLineLimit;
     cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
@@ -213,7 +213,7 @@ function renderStatusBarOnly() {
 }
 
 function getWrappedSegments(input, cols) {
-  const prefixLen = 7;
+  const prefixLen = 5;
   const segments = [];
   
   const firstLineLimit = cols - prefixLen;
@@ -244,10 +244,10 @@ function renderUI() {
   let cursorLineIdx = 0;
   let cursorCol = 0;
   
-  const firstLineLimit = cols - 7;
+  const firstLineLimit = cols - 5;
   if (cursorOffset <= firstLineLimit) {
     cursorLineIdx = 0;
-    cursorCol = 7 + cursorOffset;
+    cursorCol = 5 + cursorOffset;
   } else {
     let remainingOffset = cursorOffset - firstLineLimit;
     cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
@@ -292,7 +292,7 @@ function renderUI() {
     const lineRow = startRow + i;
     process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
     if (i === 0) {
-      process.stdout.write(`\x1b[1m\x1b[38;5;75m👤 You:\x1b[0m ${segments[0] || ''}`);
+      process.stdout.write(`\x1b[1m\x1b[38;5;75mBạn:\x1b[0m ${segments[0] || ''}`);
     } else {
       process.stdout.write(segments[i] || '');
     }
@@ -507,7 +507,7 @@ function autoDetectDraggedPaths() {
 // Định dạng câu hỏi của người dùng thành một khối có màu nền giống menu /model
 function formatUserPromptBlock(text, cols) {
   const contentWidth = Math.max(30, cols - 6); 
-  const prefix = ' 👤 You: ';
+  const prefix = '   Bạn: ';
   const lines = text.split('\n');
   const resultLines = [];
   
