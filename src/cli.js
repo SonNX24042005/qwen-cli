@@ -257,13 +257,12 @@ function replaceCitations(text, docs) {
   text = text.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
     const num = parseInt(numStr, 10);
     if (bibMap[num]) {
-      return `[[${numStr}] ${bibMap[num].domain}](${bibMap[num].url})`;
+      return `[[${numStr}]](${bibMap[num].url})`;
     }
     const idx = num - 1;
     if (docs && Array.isArray(docs) && docs[idx]) {
       const doc = docs[idx];
-      const domain = getDomain(doc.url);
-      return `[[${numStr}] ${domain}](${doc.url})`;
+      return `[[${numStr}]](${doc.url})`;
     }
     return `[${numStr}]`;
   });
@@ -273,13 +272,12 @@ function replaceCitations(text, docs) {
   text = text.replace(/(?<!\w|\[)\[(\d+)\](?!\(|\[)/g, (match, numStr) => {
     const num = parseInt(numStr, 10);
     if (bibMap[num]) {
-      return `[[${numStr}] ${bibMap[num].domain}](${bibMap[num].url})`;
+      return `[[${numStr}]](${bibMap[num].url})`;
     }
     const idx = num - 1;
     if (docs && Array.isArray(docs) && docs[idx]) {
       const doc = docs[idx];
-      const domain = getDomain(doc.url);
-      return `[[${numStr}] ${domain}](${doc.url})`;
+      return `[[${numStr}]](${doc.url})`;
     }
     return match;
   });
@@ -317,7 +315,7 @@ function rebuildScrollBuffer() {
     } else if (msg.role === 'assistant') {
       const parsedCitations = replaceCitations(msg.content, msg.docs);
       const renderedMarkdown = renderMarkdown(parsedCitations, cols);
-      formattedHistory += `\n\x1b[1m[AI]:\x1b[0m ${renderedMarkdown}\n`;
+      formattedHistory += `\n\x1b[1m\x1b[38;5;147m🤖 Qwen:\x1b[0m\n${renderedMarkdown}\n`;
     }
   });
 
@@ -415,6 +413,26 @@ async function handleUserMessage(inputText) {
       editor.showHistorySelection(history, hasMore);
     } catch (err) {
       screen.consoleError(`[Lỗi tải lịch sử]: ${err.message}`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+    }
+    return;
+  }
+
+  // Xử lý lệnh tạo cuộc trò chuyện mới
+  if (trimmedInput === '/new') {
+    screen.consoleLog(`\n[Hệ thống] Đang tạo cuộc trò chuyện mới...`);
+    editor.setIsWaitingResponse(true);
+    
+    try {
+      await driver.newChat();
+      chatHistory = [];
+      rebuildScrollBuffer();
+      screen.setScrollOffset(0);
+      screen.consoleLog(`[Hệ thống] Đã tạo cuộc trò chuyện mới thành công!`);
+    } catch (err) {
+      screen.consoleError(`[Lỗi tạo cuộc trò chuyện mới]: ${err.message}`);
+    } finally {
       editor.setIsWaitingResponse(false);
       editor.renderUI();
     }

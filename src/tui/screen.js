@@ -53,7 +53,7 @@ function stopThinkingSpinner() {
   if (hasThinkingSpinner) {
     if (scrollContentBuffer.length > 0) {
       const isDetailed = driver.isDetailedThinking();
-      const replacement = isDetailed ? '' : 'Hoàn tất';
+      const replacement = isDetailed ? '' : ' \x1b[38;5;244m(Hoàn tất)\x1b[0m';
       scrollContentBuffer = scrollContentBuffer.slice(0, -1) + replacement;
     }
     hasThinkingSpinner = false;

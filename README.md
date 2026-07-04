@@ -104,6 +104,11 @@ npm start
       ```
       /ws <câu hỏi>
       ```
+*   **Tạo cuộc trò chuyện mới (New Chat)**:
+      ```
+      /new
+      ```
+      *(Tạo phiên hội thoại trống hoàn toàn mới và giữ nguyên các thiết lập hiện tại)*
 *   **Thoát ứng dụng**:
       ```
       /exit

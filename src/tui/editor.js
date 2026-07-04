@@ -101,28 +101,93 @@ const slashCommands = [
   { display: '/ws (Bật/tắt Tìm kiếm Web)', value: '/ws' },
   { display: '/resume (Tiếp tục chat từ lịch sử)', value: '/resume' },
   { display: '/rs (Tiếp tục chat từ lịch sử)', value: '/rs' },
+  { display: '/new (Tạo cuộc trò chuyện mới)', value: '/new' },
   { display: '/exit (Thoát ứng dụng)', value: '/exit' }
 ];
 
 let lastMenuLength = 0;
+
+function drawTopBorder(boxWidth, title) {
+  const borderLength = boxWidth - 4;
+  if (title && borderLength >= title.length + 4) {
+    const leftBorder = '─'.repeat(2);
+    const rightBorder = '─'.repeat(borderLength - 2 - title.length);
+    return '  ┌' + leftBorder + '\x1b[1m\x1b[38;5;147m' + title + '\x1b[0m' + rightBorder + '┐';
+  } else {
+    return '  ┌' + '─'.repeat(borderLength) + '┐';
+  }
+}
+
+function renderBoxedMenu(rows, promptLinesCount, items, selectedIdx, title, getDisplay) {
+  const terminalRows = process.stdout.rows || 24;
+  const terminalCols = process.stdout.columns || 80;
+  const boxWidth = Math.max(40, terminalCols - 8);
+  const textWidth = boxWidth - 8;
+  const menuLength = items.length;
+
+  // 1. Draw Top Border
+  const topBorderRow = terminalRows - 1 - (promptLinesCount - 1) - (menuLength + 2);
+  process.stdout.write(`\x1b[${topBorderRow};1H\x1b[K`);
+  process.stdout.write(drawTopBorder(boxWidth, title));
+
+  // 2. Draw Items
+  items.forEach((item, idx) => {
+    const lineRow = terminalRows - 1 - (promptLinesCount - 1) - (menuLength + 2) + 1 + idx;
+    process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
+    
+    const isSelected = idx === selectedIdx;
+    const displayText = getDisplay(item);
+    const displayTitle = displayText.length > textWidth
+      ? displayText.substring(0, textWidth - 3) + '...'
+      : displayText;
+    const paddedText = displayTitle.padEnd(textWidth, ' ');
+    
+    if (isSelected) {
+      process.stdout.write(`  │\x1b[48;5;75m\x1b[30m ❯ ${paddedText} \x1b[0m│`);
+    } else {
+      process.stdout.write(`  │\x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m│`);
+    }
+  });
+
+  // 3. Draw Bottom Border
+  const bottomBorderRow = terminalRows - 1 - (promptLinesCount - 1) - 1;
+  process.stdout.write(`\x1b[${bottomBorderRow};1H\x1b[K`);
+  process.stdout.write('  └' + '─'.repeat(boxWidth - 4) + '┘');
+}
 
 function renderStatusBarOnly() {
   const rows = process.stdout.rows || 24;
   const cols = process.stdout.columns || 80;
   
   process.stdout.write(`\x1b[${rows};1H\x1b[K`);
-  const searchStatus = driver.getWebSearch() ? 'BẬT' : 'TẮT';
+  const searchStatus = driver.getWebSearch() 
+    ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m' 
+    : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
   
   const currentModelVal = driver.getModelName();
   const matchedModel = modelOptions.find(m => m.value === currentModelVal);
   const modelDisplayName = matchedModel ? matchedModel.display.split(' ')[0] : currentModelVal;
+  const modelDisplay = `\x1b[1m\x1b[38;5;220m${modelDisplayName}\x1b[0m\x1b[48;5;235m\x1b[38;5;250m`;
   
   const currentModeVal = driver.getThinkingMode();
+  let thinkingModeColor = '38;5;80m'; // Auto
+  if (currentModeVal === 'thinking') thinkingModeColor = '38;5;141m';
+  else if (currentModeVal === 'fast') thinkingModeColor = '38;5;208m';
   const thinkingDisplayName = currentModeVal === 'fast' ? 'Fast' : (currentModeVal === 'thinking' ? 'Thinking' : 'Auto');
+  const thinkingDisplay = `\x1b[1m\x1b[${thinkingModeColor}${thinkingDisplayName}\x1b[0m\x1b[48;5;235m\x1b[38;5;250m`;
   
-  const detailedStatus = driver.isDetailedThinking() ? 'BẬT' : 'TẮT';
+  const detailedStatus = driver.isDetailedThinking() 
+    ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m' 
+    : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
   
-  process.stdout.write(`\x1b[36mBuild\x1b[0m · \x1b[2mQwen Chat CLI\x1b[0m · Tìm kiếm Web: \x1b[1m${searchStatus}\x1b[0m · Suy nghĩ: \x1b[1m${thinkingDisplayName}\x1b[0m · Chi tiết: \x1b[1m${detailedStatus}\x1b[0m · Model: \x1b[1m${modelDisplayName}\x1b[0m`);
+  const barText = ` 💻 Qwen CLI │ 🌐 Tìm kiếm: ${searchStatus} │ 🧠 Suy nghĩ: ${thinkingDisplay} │ ⚙️ Chi tiết: ${detailedStatus} │ 🤖 Model: ${modelDisplay} `;
+  
+  // Calculate padding based on visible text length
+  const ansiRegex = /\u001b\[[0-9;]*m/g;
+  const visibleLen = barText.replace(ansiRegex, '').length;
+  const paddingLen = Math.max(0, cols - visibleLen);
+  
+  process.stdout.write(`\x1b[48;5;235m\x1b[38;5;250m${barText}${' '.repeat(paddingLen)}\x1b[0m`);
 
   // Phục hồi con trỏ gõ
   const segments = getWrappedSegments(inputBuffer, cols);
@@ -199,10 +264,14 @@ function renderUI() {
 
   // 1. Dọn dẹp các dòng menu cũ dựa trên vị trí cũ
   const currentMenuLength = modelSelectionVisible 
-    ? modelOptions.length 
+    ? (modelOptions.length + 2)
     : (thinkingSelectionVisible
-      ? thinkingOptions.length
-      : (autocompleteVisible && autocompleteOptions.length > 0 ? autocompleteOptions.length : 0));
+      ? (thinkingOptions.length + 2)
+      : (autocompleteVisible && autocompleteOptions.length > 0 
+         ? (autocompleteOptions.length + 2)
+         : (historySelectionVisible 
+            ? (Math.min(10, historyOptions.length) + 2) 
+            : 0)));
   
   const prevMenuStart = rows - 1 - (lastPromptLinesCount - 1) - lastMenuLength;
   const currentMenuStart = rows - 1 - (promptLinesCount - 1) - currentMenuLength;
@@ -223,7 +292,7 @@ function renderUI() {
     const lineRow = startRow + i;
     process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
     if (i === 0) {
-      process.stdout.write(`\x1b[1m[You]:\x1b[0m ${segments[0] || ''}`);
+      process.stdout.write(`\x1b[1m\x1b[38;5;75m👤 You:\x1b[0m ${segments[0] || ''}`);
     } else {
       process.stdout.write(segments[i] || '');
     }
@@ -232,64 +301,41 @@ function renderUI() {
   // 3. Vẽ thanh trạng thái (Status Bar) ghim ở dòng cuối cùng (rows)
   renderStatusBarOnly();
 
-  // 4. Vẽ menu chọn mô hình (Model Selector) nổi bật bằng màu nền
+  // 4. Vẽ menu chọn mô hình (Model Selector) nổi bật bằng khung viền
   if (modelSelectionVisible) {
-    const contentWidth = Math.max(40, cols - 6); // Trừ đi khoảng lề trái/phải an toàn
-    
-    modelOptions.forEach((opt, idx) => {
-      const lineRow = rows - 1 - (promptLinesCount - 1) - modelOptions.length + idx;
-      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
-      
-      const isSelected = idx === modelSelectedIdx;
-      const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
-      
-      if (isSelected) {
-        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
-      } else {
-        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
-      }
-    });
+    renderBoxedMenu(
+      rows,
+      promptLinesCount,
+      modelOptions,
+      modelSelectedIdx,
+      ' Chọn Mô Hình ',
+      (opt) => opt.display
+    );
   }
   // Vẽ menu chọn chế độ suy nghĩ (Thinking Selector)
   else if (thinkingSelectionVisible) {
-    const contentWidth = Math.max(40, cols - 6);
-    
-    thinkingOptions.forEach((opt, idx) => {
-      const lineRow = rows - 1 - (promptLinesCount - 1) - thinkingOptions.length + idx;
-      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
-      
-      const isSelected = idx === thinkingSelectedIdx;
-      const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
-      
-      if (isSelected) {
-        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
-      } else {
-        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
-      }
-    });
+    renderBoxedMenu(
+      rows,
+      promptLinesCount,
+      thinkingOptions,
+      thinkingSelectedIdx,
+      ' Chế Độ Suy Nghĩ ',
+      (opt) => opt.display
+    );
   }
   // 5. Vẽ menu gợi ý dropdown tệp tin
   else if (autocompleteVisible && autocompleteOptions.length > 0) {
-    const menuLength = autocompleteOptions.length;
-    const contentWidth = Math.max(40, cols - 6);
-    
-    autocompleteOptions.forEach((opt, idx) => {
-      const lineRow = rows - 1 - (promptLinesCount - 1) - menuLength + idx;
-      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
-      
-      const isSelected = idx === autocompleteSelectedIdx;
-      const paddedText = opt.display.padEnd(contentWidth - 3, ' ');
-      
-      if (isSelected) {
-        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
-      } else {
-        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
-      }
-    });
+    renderBoxedMenu(
+      rows,
+      promptLinesCount,
+      autocompleteOptions,
+      autocompleteSelectedIdx,
+      ' Gợi Ý Tệp Tin ',
+      (opt) => opt.display
+    );
   }
   // Vẽ menu chọn lịch sử (History Selector)
   else if (historySelectionVisible) {
-    const contentWidth = Math.max(40, cols - 6);
     const maxVisibleOptions = 10;
     let startIdx = 0;
     if (historyOptions.length > maxVisibleOptions) {
@@ -300,23 +346,14 @@ function renderUI() {
     }
     const visibleOptions = historyOptions.slice(startIdx, startIdx + maxVisibleOptions);
     
-    visibleOptions.forEach((opt, idx) => {
-      const actualIdx = startIdx + idx;
-      const lineRow = rows - 1 - (promptLinesCount - 1) - visibleOptions.length + idx;
-      process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
-      
-      const isSelected = actualIdx === historySelectedIdx;
-      const displayTitle = opt.display.length > contentWidth - 8
-        ? opt.display.substring(0, contentWidth - 11) + '...'
-        : opt.display;
-      const paddedText = displayTitle.padEnd(contentWidth - 3, ' ');
-      
-      if (isSelected) {
-        process.stdout.write(`  \x1b[48;5;208m\x1b[30m ❯ ${paddedText} \x1b[0m`);
-      } else {
-        process.stdout.write(`  \x1b[48;5;236m\x1b[37m   ${paddedText} \x1b[0m`);
-      }
-    });
+    renderBoxedMenu(
+      rows,
+      promptLinesCount,
+      visibleOptions,
+      historySelectedIdx - startIdx,
+      ' Lịch Sử Cuộc Trò Chuyện ',
+      (opt) => opt.display
+    );
   }
 
   // 6. Đặt vị trí con trỏ nhấp nháy đúng dòng và cột của nó
@@ -470,7 +507,7 @@ function autoDetectDraggedPaths() {
 // Định dạng câu hỏi của người dùng thành một khối có màu nền giống menu /model
 function formatUserPromptBlock(text, cols) {
   const contentWidth = Math.max(30, cols - 6); 
-  const prefix = ' [You]: ';
+  const prefix = ' 👤 You: ';
   const lines = text.split('\n');
   const resultLines = [];
   
@@ -484,7 +521,7 @@ function formatUserPromptBlock(text, cols) {
       
       const lineText = isFirstLine ? (prefix + chunk) : (' '.repeat(prefix.length) + chunk);
       const paddedLine = lineText.padEnd(contentWidth, ' ');
-      resultLines.push(`  \x1b[48;5;236m\x1b[37m${paddedLine}\x1b[0m`);
+      resultLines.push(`  \x1b[48;5;235m\x1b[38;5;253m${paddedLine}\x1b[0m`);
       
       isFirstLine = false;
       if (line.length === 0) break;

@@ -399,6 +399,28 @@ async function resumeChat(chatId) {
   await page.waitForTimeout(2000);
 }
 
+async function newChat() {
+  if (!page) throw new Error('Trình duyệt chưa được khởi tạo.');
+  
+  console.log(`[Driver] Đang quay lại trang chủ để tạo cuộc trò chuyện mới...`);
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
+  
+  await page.evaluate((status) => {
+    window.__qwenWebSearchEnabled = status;
+  }, isWebSearchEnabled);
+
+  await page.evaluate((mName) => {
+    window.__qwenModelName = mName;
+  }, currentModelName);
+
+  await page.evaluate((tMode) => {
+    window.__qwenThinkingMode = tMode;
+  }, currentThinkingMode);
+
+  await page.waitForTimeout(2000);
+}
+
 module.exports = {
   initBrowser,
   sendPrompt,
@@ -415,5 +437,6 @@ module.exports = {
   setDetailedThinking,
   getChatHistory,
   getChatDetails,
-  resumeChat
+  resumeChat,
+  newChat
 };

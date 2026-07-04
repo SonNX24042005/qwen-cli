@@ -34,9 +34,9 @@ function parseSSEChunk(rawText, state, printCallback) {
           const isDetailed = driver.isDetailedThinking();
           if (!hasShownThinkingLabel) {
             if (isDetailed) {
-              printCallback('\n[AI Thinking]:\n');
+              printCallback('\n\x1b[38;5;244m🧠 Đang suy nghĩ...\x1b[0m\n');
             } else {
-              printCallback('\n[AI Thinking]: ');
+              printCallback('\n\x1b[38;5;244m🧠 Đang suy nghĩ... \x1b[0m');
             }
             screen.startThinkingSpinner();
             hasShownThinkingLabel = true;
@@ -55,7 +55,7 @@ function parseSSEChunk(rawText, state, printCallback) {
                 const stepState = printedThoughts[i];
                 if (!stepState.titlePrinted) {
                   const prefix = i === 0 ? '' : '\n';
-                  printCallback(`${prefix}\x1b[1m\x1b[36m⚙ ${titles[i]}\x1b[0m\n`);
+                  printCallback(`${prefix}\x1b[1m\x1b[38;5;111m🔍 ${titles[i]}\x1b[0m\n`);
                   stepState.titlePrinted = true;
                 }
                 
@@ -68,7 +68,7 @@ function parseSSEChunk(rawText, state, printCallback) {
                       printCallback('  ');
                     }
                     const indentedText = newText.replace(/\n/g, '\n  ');
-                    printCallback(`\x1b[90m${indentedText}\x1b[0m`);
+                    printCallback(`\x1b[90m\x1b[3m${indentedText}\x1b[0m`);
                     stepState.contentPrintedLength = fullThought.length;
                   }
                 }
@@ -82,9 +82,9 @@ function parseSSEChunk(rawText, state, printCallback) {
           if (!hasShownAnswerLabel) {
             screen.stopThinkingSpinner();
             if (hasShownThinkingLabel || (driver.isDetailedThinking() && printedThoughts.length > 0)) {
-              printCallback('\n\n\x1b[1m[AI]:\x1b[0m ');
+              printCallback('\n\n\x1b[1m\x1b[38;5;147m🤖 Qwen:\x1b[0m\n');
             } else {
-              printCallback('\n\x1b[1m[AI]:\x1b[0m ');
+              printCallback('\n\x1b[1m\x1b[38;5;147m🤖 Qwen:\x1b[0m\n');
             }
             hasShownThinkingLabel = false;
             hasShownAnswerLabel = true;
