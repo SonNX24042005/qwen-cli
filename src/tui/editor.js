@@ -106,6 +106,8 @@ const slashCommands = [
   { display: '/ep (Bật/tắt tự động xuất chat)', value: '/ep' },
   { display: '/import (Nhập lịch sử chat từ file)', value: '/import' },
   { display: '/ip (Nhập lịch sử chat từ file)', value: '/ip' },
+  { display: '/update (Cập nhật ứng dụng lên bản mới nhất)', value: '/update' },
+  { display: '/up (Cập nhật ứng dụng lên bản mới nhất)', value: '/up' },
   { display: '/exit (Thoát ứng dụng)', value: '/exit' }
 ];
 
@@ -188,7 +190,31 @@ function renderStatusBarOnly() {
     ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m'
     : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
   
-  const barText = ` 💻 Qwen CLI │ 🌐 Tìm kiếm: ${searchStatus} │ 🧠 Suy nghĩ: ${thinkingDisplay} │ ⚙️ Chi tiết: ${detailedStatus} │ 🤖 Model: ${modelDisplay} │ 💾 Xuất: ${exportStatus} `;
+  // Xây dựng thanh trạng thái động tránh tràn màn hình (wrapping)
+  let barItems = [];
+  const isCompact = cols < 110;
+  const isSuperCompact = cols < 85;
+
+  const searchLabel = isCompact ? '🌐 Web:' : '🌐 Tìm kiếm:';
+  const thinkingLabel = isCompact ? '🧠' : '🧠 Suy nghĩ:';
+  const detailedLabel = isCompact ? '⚙️' : '⚙️ Chi tiết:';
+  const modelLabel = isCompact ? '🤖' : '🤖 Model:';
+  const exportLabel = isCompact ? '💾' : '💾 Xuất:';
+
+  if (cols >= 120) {
+    barItems.push(`💻 Qwen CLI`);
+  }
+  barItems.push(`${searchLabel} ${searchStatus}`);
+  barItems.push(`${thinkingLabel} ${thinkingDisplay}`);
+  
+  if (!isSuperCompact) {
+    barItems.push(`${detailedLabel} ${detailedStatus}`);
+  }
+  
+  barItems.push(`${modelLabel} ${modelDisplay}`);
+  barItems.push(`${exportLabel} ${exportStatus}`);
+
+  const barText = ' ' + barItems.join(' │ ') + ' ';
   
   // Calculate padding based on visible text length
   const ansiRegex = /\u001b\[[0-9;]*m/g;

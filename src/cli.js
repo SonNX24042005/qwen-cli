@@ -646,8 +646,22 @@ async function handleUserMessage(inputText) {
         editor.setIsWaitingResponse(false);
         editor.renderUI();
       }
-      return;
+  // Xử lý lệnh tự động cập nhật phần mềm từ trong phiên chat
+  if (trimmedInput === '/update' || trimmedInput === '/up') {
+    screen.shutdownTUI();
+    console.log('===========================================');
+    console.log('       CẬP NHẬT QWEN CHAT CLI TOÀN CỤC     ');
+    console.log('===========================================');
+    console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
+    const { spawnSync } = require('child_process');
+    const isWindows = process.platform === 'win32';
+    
+    if (isWindows) {
+      spawnSync('powershell', ['-Command', "iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1' | iex"], { stdio: 'inherit' });
+    } else {
+      spawnSync('bash', ['-c', "curl -fsSL 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=$(date +%s)' | bash"], { stdio: 'inherit' });
     }
+    process.exit(0);
   }
 
   // Xử lý lệnh thay đổi chế độ suy nghĩ có hoặc không có tham số
@@ -935,6 +949,23 @@ async function handleUserMessage(inputText) {
 }
 
 async function main() {
+  // Kiểm tra đối số cập nhật phần mềm tự động
+  if (process.argv.includes('--update') || process.argv.includes('-u') || process.argv.includes('update')) {
+    console.log('===========================================');
+    console.log('       CẬP NHẬT QWEN CHAT CLI TOÀN CỤC     ');
+    console.log('===========================================');
+    console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
+    const { spawnSync } = require('child_process');
+    const isWindows = process.platform === 'win32';
+    
+    if (isWindows) {
+      spawnSync('powershell', ['-Command', "iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1' | iex"], { stdio: 'inherit' });
+    } else {
+      spawnSync('bash', ['-c', "curl -fsSL 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=$(date +%s)' | bash"], { stdio: 'inherit' });
+    }
+    process.exit(0);
+  }
+
   // 0. Phân tích đối số dòng lệnh để thiết lập chế độ suy nghĩ ban đầu
   let initialThinkingMode = 'auto';
   const modeArgIndex = process.argv.findIndex(arg => arg === '--mode' || arg === '--think' || arg === '-t');
