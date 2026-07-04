@@ -659,11 +659,12 @@ async function handleUserMessage(inputText) {
     console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
     const { spawnSync } = require('child_process');
     const isWindows = process.platform === 'win32';
+    const timestamp = Date.now();
     
     if (isWindows) {
-      spawnSync('powershell', ['-Command', "iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1' | iex"], { stdio: 'inherit' });
+      spawnSync('powershell', ['-Command', `iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1?v=${timestamp}' | iex`], { stdio: 'inherit' });
     } else {
-      spawnSync('bash', ['-c', "curl -fsSL 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=$(date +%s)' | bash"], { stdio: 'inherit' });
+      spawnSync('bash', ['-c', `curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=${timestamp}" | bash`], { stdio: 'inherit' });
     }
     process.exit(0);
   }
@@ -961,11 +962,12 @@ async function main() {
     console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
     const { spawnSync } = require('child_process');
     const isWindows = process.platform === 'win32';
+    const timestamp = Date.now();
     
     if (isWindows) {
-      spawnSync('powershell', ['-Command', "iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1' | iex"], { stdio: 'inherit' });
+      spawnSync('powershell', ['-Command', `iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1?v=${timestamp}' | iex`], { stdio: 'inherit' });
     } else {
-      spawnSync('bash', ['-c', "curl -fsSL 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=$(date +%s)' | bash"], { stdio: 'inherit' });
+      spawnSync('bash', ['-c', `curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=${timestamp}" | bash`], { stdio: 'inherit' });
     }
     process.exit(0);
   }
