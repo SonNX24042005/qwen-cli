@@ -24,6 +24,35 @@ let currentOnError = null;
 let isWebSearchEnabled = false;
 let currentThinkingMode = 'auto'; // 'auto' | 'thinking' | 'fast'
 
+let isNewChatChatExportEnabled = false;
+let autoExportSessions = new Set();
+const autoExportConfigPath = path.resolve(process.cwd(), 'output-qwen/auto_export_sessions.json');
+
+function loadAutoExportSessions() {
+  try {
+    if (fs.existsSync(autoExportConfigPath)) {
+      const data = JSON.parse(fs.readFileSync(autoExportConfigPath, 'utf8'));
+      autoExportSessions = new Set(data);
+    }
+  } catch (e) {
+    // console.error(e);
+  }
+}
+
+function saveAutoExportSessions() {
+  try {
+    const dir = path.dirname(autoExportConfigPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(autoExportConfigPath, JSON.stringify(Array.from(autoExportSessions), null, 2), 'utf8');
+  } catch (e) {
+    // console.error(e);
+  }
+}
+
+loadAutoExportSessions();
+
 
 // Khởi chạy chế độ giải Captcha tương tác (Headful)
 async function runInteractiveCaptchaSolver(failedPromptText) {
@@ -281,6 +310,10 @@ async function initBrowser(onChunk, onDone, onError) {
     window.__qwenThinkingMode = tMode;
   }, currentThinkingMode);
 
+  await page.evaluate(() => {
+    window.__qwenImportedHistory = null;
+  });
+
   await page.waitForTimeout(2000);
   
   console.log('[Driver] Kết nối thành công và đã sẵn sàng chat!');
@@ -418,7 +451,98 @@ async function newChat() {
     window.__qwenThinkingMode = tMode;
   }, currentThinkingMode);
 
+  await page.evaluate(() => {
+    window.__qwenImportedHistory = null;
+  });
+
   await page.waitForTimeout(2000);
+}
+
+function getCurrentChatId() {
+  if (!page) return null;
+  const url = page.url();
+  const match = url.match(/\/c\/([a-f0-9\-]+)/);
+  return match ? match[1] : null;
+}
+
+async function importChatHistory(history) {
+  if (!page) throw new Error('Trình duyệt chưa được khởi tạo.');
+  
+  console.log(`[Driver] Đang quay lại trang chủ để chuẩn bị nhập lịch sử trò chuyện...`);
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
+  
+  await page.evaluate((status) => {
+    window.__qwenWebSearchEnabled = status;
+  }, isWebSearchEnabled);
+
+  await page.evaluate((mName) => {
+    window.__qwenModelName = mName;
+  }, currentModelName);
+
+  await page.evaluate((tMode) => {
+    window.__qwenThinkingMode = tMode;
+  }, currentThinkingMode);
+
+  await page.evaluate((hist) => {
+    window.__qwenImportedHistory = hist;
+  }, history);
+
+  await page.waitForTimeout(2000);
+}
+
+function isExportModeEnabled() {
+  const chatId = getCurrentChatId();
+  if (!chatId) {
+    return isNewChatChatExportEnabled;
+  }
+  return autoExportSessions.has(chatId);
+}
+
+function toggleExportMode() {
+  const chatId = getCurrentChatId();
+  if (!chatId) {
+    isNewChatChatExportEnabled = !isNewChatChatExportEnabled;
+    return isNewChatChatExportEnabled;
+  }
+  
+  loadAutoExportSessions();
+  if (autoExportSessions.has(chatId)) {
+    autoExportSessions.delete(chatId);
+  } else {
+    autoExportSessions.add(chatId);
+  }
+  saveAutoExportSessions();
+  return autoExportSessions.has(chatId);
+}
+
+function setExportMode(enabled) {
+  const chatId = getCurrentChatId();
+  if (!chatId) {
+    isNewChatChatExportEnabled = !!enabled;
+    return;
+  }
+  loadAutoExportSessions();
+  if (enabled) {
+    autoExportSessions.add(chatId);
+  } else {
+    autoExportSessions.delete(chatId);
+  }
+  saveAutoExportSessions();
+}
+
+function checkAndSyncNewChatExport() {
+  if (isNewChatChatExportEnabled) {
+    const chatId = getCurrentChatId();
+    if (chatId) {
+      loadAutoExportSessions();
+      autoExportSessions.add(chatId);
+      saveAutoExportSessions();
+      isNewChatChatExportEnabled = false;
+      return chatId;
+    }
+  }
+  return null;
 }
 
 module.exports = {
@@ -438,5 +562,11 @@ module.exports = {
   getChatHistory,
   getChatDetails,
   resumeChat,
-  newChat
+  newChat,
+  getCurrentChatId,
+  importChatHistory,
+  isExportModeEnabled,
+  toggleExportMode,
+  setExportMode,
+  checkAndSyncNewChatExport
 };

@@ -19,6 +19,16 @@ const INIT_SCRIPT = (token) => `(function() {
   if (window.__qwenThinkingMode === undefined) {
     window.__qwenThinkingMode = 'auto';
   }
+  if (window.__qwenImportedHistory === undefined) {
+    window.__qwenImportedHistory = null;
+  }
+
+  function uuidv4() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
 
   if (window.__teeInstalled) return;
   window.__teeInstalled = true;
@@ -38,6 +48,67 @@ const INIT_SCRIPT = (token) => `(function() {
             bodyObj.model = window.__qwenModelName;
           }
           if (bodyObj.messages) {
+            // Nhúng lịch sử trò chuyện đã import nếu có
+            if (window.__qwenImportedHistory && Array.isArray(window.__qwenImportedHistory) && window.__qwenImportedHistory.length > 0) {
+              const importedMessages = [];
+              let prevFid = null;
+              const currentModel = bodyObj.model || 'qwen3.7-plus';
+
+              for (let i = 0; i < window.__qwenImportedHistory.length; i++) {
+                const hMsg = window.__qwenImportedHistory[i];
+                const fid = uuidv4();
+                const mObj = {
+                  fid: fid,
+                  parentId: prevFid,
+                  childrenIds: [],
+                  role: hMsg.role,
+                  content: hMsg.content || '',
+                  user_action: 'chat',
+                  files: [],
+                  timestamp: Math.floor(Date.now() / 1000) - (window.__qwenImportedHistory.length - i),
+                  models: [currentModel],
+                  chat_type: 't2t',
+                  sub_chat_type: 't2t',
+                  feature_config: {
+                    thinking_enabled: true,
+                    output_schema: 'phase',
+                    research_mode: 'normal',
+                    auto_thinking: false,
+                    thinking_mode: 'Thinking',
+                    thinking_format: 'summary',
+                    auto_search: false
+                  },
+                  extra: {
+                    meta: {
+                      subChatType: 't2t'
+                    }
+                  }
+                };
+
+                if (prevFid && importedMessages.length > 0) {
+                  importedMessages[importedMessages.length - 1].childrenIds = [fid];
+                }
+                importedMessages.push(mObj);
+                prevFid = fid;
+              }
+
+              if (bodyObj.messages.length > 0) {
+                const currentMsg = bodyObj.messages[0];
+                if (!currentMsg.fid) {
+                  currentMsg.fid = uuidv4();
+                }
+                currentMsg.parentId = prevFid;
+                if (importedMessages.length > 0) {
+                  importedMessages[importedMessages.length - 1].childrenIds = [currentMsg.fid];
+                }
+                bodyObj.messages = importedMessages.concat(bodyObj.messages);
+              } else {
+                bodyObj.messages = importedMessages;
+              }
+
+              bodyObj.parent_id = prevFid;
+              window.__qwenImportedHistory = null;
+            }
             bodyObj.messages.forEach(msg => {
               if (msg.role === 'user') {
                 if (!msg.feature_config) msg.feature_config = {};

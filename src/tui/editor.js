@@ -102,6 +102,10 @@ const slashCommands = [
   { display: '/resume (Tiếp tục chat từ lịch sử)', value: '/resume' },
   { display: '/rs (Tiếp tục chat từ lịch sử)', value: '/rs' },
   { display: '/new (Tạo cuộc trò chuyện mới)', value: '/new' },
+  { display: '/export (Bật/tắt tự động xuất chat)', value: '/export' },
+  { display: '/ep (Bật/tắt tự động xuất chat)', value: '/ep' },
+  { display: '/import (Nhập lịch sử chat từ file)', value: '/import' },
+  { display: '/ip (Nhập lịch sử chat từ file)', value: '/ip' },
   { display: '/exit (Thoát ứng dụng)', value: '/exit' }
 ];
 
@@ -179,8 +183,12 @@ function renderStatusBarOnly() {
   const detailedStatus = driver.isDetailedThinking() 
     ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m' 
     : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
+
+  const exportStatus = driver.isExportModeEnabled()
+    ? '\x1b[1m\x1b[32mBẬT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m'
+    : '\x1b[2mTẮT\x1b[0m\x1b[48;5;235m\x1b[38;5;250m';
   
-  const barText = ` 💻 Qwen CLI │ 🌐 Tìm kiếm: ${searchStatus} │ 🧠 Suy nghĩ: ${thinkingDisplay} │ ⚙️ Chi tiết: ${detailedStatus} │ 🤖 Model: ${modelDisplay} `;
+  const barText = ` 💻 Qwen CLI │ 🌐 Tìm kiếm: ${searchStatus} │ 🧠 Suy nghĩ: ${thinkingDisplay} │ ⚙️ Chi tiết: ${detailedStatus} │ 🤖 Model: ${modelDisplay} │ 💾 Xuất: ${exportStatus} `;
   
   // Calculate padding based on visible text length
   const ansiRegex = /\u001b\[[0-9;]*m/g;

@@ -323,11 +323,8 @@ function rebuildScrollBuffer() {
   screen.refreshScrollRegion();
 }
 
-// Biến Promise dùng để đồng bộ hóa hàng đợi gửi tin nhắn
 let resolveDonePromise = null;
 let streamBuffer = '';
-
-// Biến trạng thái khởi tạo trình duyệt trong background
 let browserInitPromise = null;
 let isBrowserReady = false;
 
@@ -335,6 +332,260 @@ function waitForResponse() {
   return new Promise((resolve) => {
     resolveDonePromise = resolve;
   });
+}
+
+async function triggerAutoExport() {
+  const chatId = driver.getCurrentChatId();
+  if (!chatId) return;
+  await exportCurrentChat(chatId);
+}
+
+async function exportCurrentChat(chatId) {
+  const chatData = await driver.getChatDetails(chatId);
+  if (!chatData) {
+    throw new Error(`Không thể tải chi tiết cuộc trò chuyện có ID: ${chatId}`);
+  }
+
+  let title = chatData.title || '';
+  if (!title || title.trim().toLowerCase() === 'new chat') {
+    const msgMap = chatData.chat?.messages || {};
+    const userMsgs = Object.values(msgMap).filter(m => m.role === 'user');
+    if (userMsgs.length > 0) {
+      const sortedUserMsgs = userMsgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      title = sortedUserMsgs[0].content || '';
+    }
+  }
+
+  function getSafeFilename(text, defaultName) {
+    if (!text || text.trim() === '') return defaultName;
+    return text
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .substring(0, 50);
+  }
+
+  const safeTitle = getSafeFilename(title, `chat_${chatId}`);
+  const outputDir = path.resolve(process.cwd(), 'output-qwen');
+
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const jsonPath = path.join(outputDir, `${safeTitle}.json`);
+  fs.writeFileSync(jsonPath, JSON.stringify([chatData], null, 2), 'utf8');
+
+  const mdPath = path.join(outputDir, `${safeTitle}.md`);
+  const mdContent = convertChatToMarkdown(chatData);
+  fs.writeFileSync(mdPath, mdContent, 'utf8');
+}
+
+function convertChatToMarkdown(chatData) {
+  let md = '';
+  const title = chatData.title || 'Untitled Chat';
+  md += `# ${title}\n\n`;
+  md += `- **ID**: \`${chatData.id}\`\n`;
+  
+  const modelName = chatData.models ? chatData.models.join(', ') : 'unknown';
+  md += `- **Model**: \`${modelName}\`\n`;
+  
+  if (chatData.created_at) {
+    const date = new Date(chatData.created_at * 1000);
+    md += `- **Created At**: \`${date.toLocaleString('vi-VN')}\`\n`;
+  }
+  md += `\n---\n\n`;
+
+  const msgMap = chatData.chat && chatData.chat.messages ? chatData.chat.messages : {};
+  const messages = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+  messages.forEach((msg) => {
+    if (msg.role === 'user') {
+      md += `### 👤 User\n\n${msg.content || ''}\n\n---\n\n`;
+    } else if (msg.role === 'assistant') {
+      md += `### 🤖 Assistant\n\n`;
+
+      if (msg.content_list && msg.content_list.length > 0) {
+        const thinkingItems = msg.content_list.filter(item => item.phase === 'thinking_summary');
+        if (thinkingItems.length > 0) {
+          md += `<details>\n<summary>🧠 Thinking Process</summary>\n\n`;
+          thinkingItems.forEach((tItem) => {
+            const titles = tItem.extra && tItem.extra.summary_title ? tItem.extra.summary_title.content : [];
+            const thoughts = tItem.extra && tItem.extra.summary_thought ? tItem.extra.summary_thought.content : [];
+            for (let i = 0; i < titles.length; i++) {
+              md += `- **${titles[i]}**`;
+              if (thoughts[i]) {
+                md += `: ${thoughts[i].trim()}`;
+              }
+              md += `\n`;
+            }
+          });
+          md += `\n</details>\n\n`;
+        }
+
+        let searchDocs = [];
+        msg.content_list.forEach((item) => {
+          if (item.phase === 'web_search' && item.extra) {
+            const docs = item.extra.web_search_info || (item.extra.tool_result && item.extra.tool_result.docs);
+            if (docs && Array.isArray(docs)) {
+              searchDocs = searchDocs.concat(docs);
+            }
+          }
+        });
+
+        if (searchDocs.length > 0) {
+          md += `<details>\n<summary>🔍 Web Search References</summary>\n\n`;
+          searchDocs.forEach((doc) => {
+            if (doc.title && doc.url) {
+              md += `- [${doc.title}](${doc.url})\n`;
+            } else if (doc.url) {
+              md += `- [${doc.url}](${doc.url})\n`;
+            }
+          });
+          md += `\n</details>\n\n`;
+        }
+      }
+
+      let assistantContent = msg.content || '';
+      if (msg.content_list && msg.content_list.length > 0) {
+        const answerItem = msg.content_list.find(item => item.phase === 'answer');
+        if (answerItem) {
+          assistantContent = answerItem.content || '';
+        } else {
+          const lastItem = msg.content_list[msg.content_list.length - 1];
+          assistantContent = lastItem.content || '';
+        }
+      }
+
+      md += `${assistantContent}\n\n---\n\n`;
+    }
+  });
+
+  return md.trim() + '\n';
+}
+
+function parseMarkdownToMessages(mdContent) {
+  const lines = mdContent.split(/\r?\n/);
+  const messages = [];
+  let currentRole = null;
+  let currentContentLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    if (line.startsWith('### 👤 User')) {
+      if (currentRole && currentContentLines.length > 0) {
+        messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
+      }
+      currentRole = 'user';
+      currentContentLines = [];
+    } else if (line.startsWith('### 🤖 Assistant')) {
+      if (currentRole && currentContentLines.length > 0) {
+        messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
+      }
+      currentRole = 'assistant';
+      currentContentLines = [];
+    } else {
+      if (currentRole) {
+        currentContentLines.push(line);
+      }
+    }
+  }
+
+  if (currentRole && currentContentLines.length > 0) {
+    messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
+  }
+
+  messages.forEach(msg => {
+    msg.content = msg.content.replace(/\n---\s*$/, '').trim();
+    if (msg.role === 'assistant') {
+      msg.content = msg.content
+        .replace(/<details>[\s\S]*?<\/details>/gi, '')
+        .trim();
+    }
+  });
+
+  return messages;
+}
+
+async function handleImportChat(filePath) {
+  let resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(process.cwd(), filePath);
+  
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Đường dẫn tệp không tồn tại: ${resolvedPath}`);
+  }
+
+  let importedData = null;
+  let parsedMessages = [];
+  const ext = path.extname(resolvedPath).toLowerCase();
+  
+  if (ext === '.json') {
+    const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+    const rawData = JSON.parse(fileContent);
+    importedData = Array.isArray(rawData) ? rawData[0] : rawData;
+  } else if (ext === '.md') {
+    const jsonPath = resolvedPath.slice(0, -ext.length) + '.json';
+    if (fs.existsSync(jsonPath)) {
+      screen.consoleLog(`[Hệ thống] Tìm thấy file JSON đi kèm: ${path.basename(jsonPath)}. Sẽ sử dụng để nhập đầy đủ dữ liệu.`);
+      const fileContent = fs.readFileSync(jsonPath, 'utf8');
+      const rawData = JSON.parse(fileContent);
+      importedData = Array.isArray(rawData) ? rawData[0] : rawData;
+    } else {
+      screen.consoleLog(`[Hệ thống] Không thấy file JSON đi kèm. Tiến hành parse file Markdown...`);
+      parsedMessages = parseMarkdownToMessages(fs.readFileSync(resolvedPath, 'utf8'));
+    }
+  } else {
+    throw new Error('Chỉ hỗ trợ nhập từ tệp .json hoặc .md.');
+  }
+
+  if (importedData) {
+    const msgMap = importedData.chat && importedData.chat.messages ? importedData.chat.messages : {};
+    const sortedMsgs = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    
+    sortedMsgs.forEach(msg => {
+      if (msg.role === 'user') {
+        parsedMessages.push({ role: 'user', content: msg.content || '' });
+      } else if (msg.role === 'assistant') {
+        let assistantContent = msg.content || '';
+        if (msg.content_list && msg.content_list.length > 0) {
+          const answerItem = msg.content_list.find(item => item.phase === 'answer');
+          if (answerItem) {
+            assistantContent = answerItem.content || '';
+          } else {
+            const lastItem = msg.content_list[msg.content_list.length - 1];
+            assistantContent = lastItem.content || '';
+          }
+        }
+        
+        let lastDocs = null;
+        if (msg.content_list && Array.isArray(msg.content_list)) {
+          for (let i = msg.content_list.length - 1; i >= 0; i--) {
+            const item = msg.content_list[i];
+            if (item.phase === 'web_search' && item.extra) {
+              const docs = item.extra.web_search_info || (item.extra.tool_result && item.extra.tool_result.docs);
+              if (docs && Array.isArray(docs) && docs.length > 0) {
+                lastDocs = docs;
+                break;
+              }
+            }
+          }
+        }
+        parsedMessages.push({ role: 'assistant', content: assistantContent, docs: lastDocs });
+      }
+    });
+  }
+
+  if (parsedMessages.length === 0) {
+    throw new Error('Không tìm thấy cuộc hội thoại hợp lệ nào để nhập.');
+  }
+
+  chatHistory = parsedMessages;
+  rebuildScrollBuffer();
+  screen.setScrollOffset(0);
+
+  const basicHistory = parsedMessages.map(m => ({ role: m.role, content: m.content }));
+  await driver.importChatHistory(basicHistory);
+  
+  screen.consoleLog(`[Hệ thống] Nhập lịch sử trò chuyện thành công! Đã khôi phục ${parsedMessages.length} tin nhắn.`);
 }
 
 // Xử lý gửi tin nhắn chính thức của người dùng
@@ -351,6 +602,52 @@ async function handleUserMessage(inputText) {
     screen.consoleLog('[Hệ thống] Đang thoát chương trình...');
     await screen.shutdownTUI();
     return;
+  }
+
+  // Xử lý lệnh bật/tắt tự động xuất cuộc trò chuyện
+  if (trimmedInput === '/export' || trimmedInput === '/ep') {
+    const isNowEnabled = driver.toggleExportMode();
+    screen.consoleLog(`[Hệ thống] Chế độ tự động xuất đoạn chat sang Markdown/JSON đã được: ${isNowEnabled ? 'BẬT (ON)' : 'TẮT (OFF)'}`);
+    if (isNowEnabled) {
+      const chatId = driver.getCurrentChatId();
+      if (chatId) {
+        screen.consoleLog(`[Hệ thống] Phát hiện cuộc hội thoại đang mở, đang tiến hành xuất lịch sử hiện tại...`);
+        exportCurrentChat(chatId).then(() => {
+          screen.consoleLog(`[Hệ thống] Xuất lịch sử hiện tại thành công!`);
+        }).catch((err) => {
+          screen.consoleError(`\n[Lỗi xuất cuộc trò chuyện]: ${err.message}`);
+        });
+      }
+    }
+    editor.setIsWaitingResponse(false);
+    editor.renderUI();
+    return;
+  }
+
+  // Xử lý lệnh nhập lịch sử cuộc trò chuyện từ file
+  if (trimmedInput.startsWith('/import') || trimmedInput.startsWith('/ip')) {
+    const parts = trimmedInput.split(/\s+/);
+    const cmd = parts[0];
+    if (cmd === '/import' || cmd === '/ip') {
+      const filePath = trimmedInput.substring(cmd.length).trim();
+      if (!filePath) {
+        screen.consoleError(`[Lỗi] Vui lòng cung cấp đường dẫn đến file JSON hoặc Markdown cần nhập.`);
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      screen.consoleLog(`\n[Hệ thống] Đang tải lịch sử trò chuyện từ file: ${filePath}...`);
+      editor.setIsWaitingResponse(true);
+      try {
+        await handleImportChat(filePath);
+      } catch (err) {
+        screen.consoleError(`[Lỗi nhập cuộc trò chuyện]: ${err.message}`);
+      } finally {
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+      }
+      return;
+    }
   }
 
   // Xử lý lệnh thay đổi chế độ suy nghĩ có hoặc không có tham số
@@ -670,6 +967,8 @@ async function main() {
   screen.consoleLog('=== QWEN CHAT CLI ===');
   screen.consoleLog('Nhập "/exit" hoặc nhấn Ctrl+C để thoát chương trình.');
   screen.consoleLog('Nhập "/websearch" hoặc "/ws" để bật/tắt Tìm kiếm Web (Mặc định: TẮT).');
+  screen.consoleLog('Nhập "/export" hoặc "/ep" để bật/tắt Tự động xuất chat sang Markdown/JSON (Mặc định: TẮT).');
+  screen.consoleLog('Nhập "/import <path>" hoặc "/ip <path>" để khôi phục lịch sử trò chuyện.');
   screen.consoleLog('Cách đính kèm: Gõ tên file hoặc folder bắt đầu bằng ký tự @ trong câu chat.');
   screen.consoleLog('Gợi ý tự động (Autocomplete Dropdown): Gõ ký tự @, dùng TAB hoặc phím Lên/Xuống để chọn.');
   screen.consoleLog('Kéo thả file: Bạn có thể kéo thả trực tiếp file/folder từ File Explorer vào đây để đính kèm!\n');
@@ -707,6 +1006,13 @@ async function main() {
       chatHistory.push({ role: 'assistant', content: sseState.currentResponseText, docs: sseState.webSearchInfo });
     }
     rebuildScrollBuffer();
+
+    driver.checkAndSyncNewChatExport();
+    if (driver.isExportModeEnabled()) {
+      triggerAutoExport().catch((err) => {
+        screen.consoleError(`\n[Lỗi xuất cuộc trò chuyện]: ${err.message}`);
+      });
+    }
     
     if (resolveDonePromise) {
       resolveDonePromise();
@@ -734,6 +1040,13 @@ async function main() {
       chatHistory.push({ role: 'assistant', content: sseState.currentResponseText, docs: sseState.webSearchInfo });
     }
     rebuildScrollBuffer();
+
+    driver.checkAndSyncNewChatExport();
+    if (driver.isExportModeEnabled()) {
+      triggerAutoExport().catch((err) => {
+        screen.consoleError(`\n[Lỗi xuất cuộc trò chuyện]: ${err.message}`);
+      });
+    }
     
     screen.consoleError(`\n[Lỗi Stream]: ${errMsg}`);
     

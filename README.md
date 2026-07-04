@@ -47,6 +47,15 @@ Dự án được trang bị giao diện người dùng tương tác **TUI (Term
 12. **Khởi động ngầm, không chặn nhập liệu**:
     *   Trình duyệt Chromium được tự động khởi động ngầm ở chế độ background khi mở CLI.
     *   Người dùng có thể gõ phím, chuẩn bị sẵn câu hỏi, chọn mô hình hoặc các tính năng ngay lập tức mà không cần chờ kết nối hoàn tất.
+13. **Tự động xuất đoạn chat (Auto Chat Export)**:
+    *   Tự động lưu lịch sử hội thoại khi kết thúc phản hồi của AI (khi bật tính năng này bằng lệnh `/export` hoặc `/ep`).
+    *   Dữ liệu được lưu trong thư mục `output-qwen/` tại thư mục làm việc hiện tại dưới hai định dạng:
+        *   `.json`: Chứa toàn bộ dữ liệu cấu trúc gốc từ Qwen Web API (phục vụ việc nạp ngược).
+        *   `.md`: Định dạng Markdown dễ đọc, trình bày đẹp mắt các luồng suy nghĩ (Thinking Process) và tài liệu tham khảo tìm kiếm Web (Web Search References) trong các thẻ thu gọn `<details>`.
+14. **Nhập lịch sử trò chuyện (Import Chat History)**:
+    *   Khôi phục cuộc trò chuyện cũ đã lưu từ file JSON hoặc Markdown bằng lệnh `/import <path>` hoặc `/ip <path>`.
+    *   Sau khi khôi phục, cuộc trò chuyện sẽ hiển thị đầy đủ trên Terminal và tự động nạp lịch sử tương ứng vào phiên chat mới của Qwen ngầm. Bạn có thể gửi tin nhắn tiếp theo và Qwen sẽ nhận biết toàn bộ bối cảnh cuộc trò chuyện cũ này.
+
 
 ---
 
@@ -109,6 +118,16 @@ npm start
       /new
       ```
       *(Tạo phiên hội thoại trống hoàn toàn mới và giữ nguyên các thiết lập hiện tại)*
+*   **Bật/tắt tự động xuất đoạn chat (Auto Export)**:
+      ```
+      /ep
+      ```
+      *(Hoặc `/export`, dùng để bật hoặc tắt chế độ tự động lưu lịch sử chat sang Markdown & JSON vào thư mục `output-qwen/`)*
+*   **Khôi phục cuộc trò chuyện từ file (Import Chat)**:
+      ```
+      /ip <đường_dẫn_file>
+      ```
+      *(Hoặc `/import <đường_dẫn_file>`, hỗ trợ nạp tệp `.json` hoặc `.md` đã lưu để tiếp tục trò chuyện)*
 *   **Thoát ứng dụng**:
       ```
       /exit
