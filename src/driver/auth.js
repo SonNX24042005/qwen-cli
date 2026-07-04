@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright-extra');
+const { launchBrowser } = require('./launcher');
 
 const BASE_URL = 'https://chat.qwen.ai';
 
@@ -41,7 +41,7 @@ async function runInteractiveLogin() {
   console.log('\n[Hệ thống] Đang mở trình duyệt (Headful Mode) để bạn đăng nhập...');
   console.log('[Hệ thống] Hãy đăng nhập tài khoản Qwen trên cửa sổ trình duyệt vừa hiện lên.');
 
-  const loginBrowser = await chromium.launch({
+  const loginBrowser = await launchBrowser({
     headless: false,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled']
   });

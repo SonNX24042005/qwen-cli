@@ -22,7 +22,7 @@ Nếu bạn đã clone sẵn dự án về máy:
    ```bash
    npm install -g .
    ```
-   *(CLI sẽ tự động cài đặt các dependencies và tải trình duyệt Chromium cho Playwright).*
+   *(CLI sẽ tự động cài đặt các dependencies. Trình duyệt Chromium sẽ được tự động tải về trong lần khởi chạy đầu tiên).*
 
 2. **Khởi chạy ứng dụng**:
    Tại bất kỳ thư mục nào trên máy tính, chỉ cần mở terminal và chạy:

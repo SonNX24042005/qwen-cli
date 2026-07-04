@@ -2,9 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
-chromium.use(stealth);
+const { launchBrowser } = require('./launcher');
 
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
@@ -62,7 +60,7 @@ async function runInteractiveCaptchaSolver(failedPromptText) {
 
   await closeBrowser().catch(() => {});
 
-  const captchaBrowser = await chromium.launch({
+  const captchaBrowser = await launchBrowser({
     headless: false,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled']
   });
@@ -244,7 +242,7 @@ async function initBrowser(onChunk, onDone, onError) {
   }
 
   console.log('[Driver] Đang khởi chạy Chromium ẩn danh...');
-  browser = await chromium.launch({
+  browser = await launchBrowser({
     headless: true,
     args: [
       '--no-sandbox',

@@ -54,12 +54,36 @@ git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
 echo -e "Đang cài đặt thư viện npm và Chromium browser cho Playwright..."
 cd "$INSTALL_DIR"
 
+# Xóa postinstall script tạm thời nếu có để tránh lỗi trong quá trình npm install
+if grep -q "postinstall" package.json; then
+    echo -e "Đang tự động dọn dẹp cấu hình postinstall trong package.json..."
+    node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('package.json', 'utf8')); delete p.scripts.postinstall; fs.writeFileSync('package.json', JSON.stringify(p, null, 2), 'utf8');"
+fi
+
 # Chạy cài đặt toàn cục
 if [ "$EUID" -ne 0 ]; then
     # Nếu không phải root, thử cài đặt trực tiếp, nếu lỗi quyền thì thử sudo
     npm install -g . || {
         echo -e "${YELLOW}Không đủ quyền ghi. Đang thử cài đặt với sudo...${NC}"
-        sudo npm install -g . --unsafe-perm
+        if command -v sudo &> /dev/null; then
+            # Kiểm tra xem sudo có gọi được npm không
+            if sudo env "PATH=$PATH" command -v npm &> /dev/null; then
+                sudo env "PATH=$PATH" npm install -g . --unsafe-perm
+            elif sudo command -v npm &> /dev/null; then
+                sudo npm install -g . --unsafe-perm
+            else
+                echo -e "${RED}[Lỗi] Không tìm thấy lệnh 'npm' khi chạy dưới quyền sudo (thường gặp khi dùng NVM).${NC}"
+                echo -e "${YELLOW}Gợi ý: Hãy cấu hình npm global prefix để cài đặt không cần quyền root (sudo):${NC}"
+                echo -e "  1. Tạo thư mục global:${BLUE} mkdir -p ~/.npm-global${NC}"
+                echo -e "  2. Cấu hình prefix:${BLUE} npm config set prefix '~/.npm-global'${NC}"
+                echo -e "  3. Thêm dòng sau vào cuối file ~/.bashrc hoặc ~/.zshrc:${BLUE} export PATH=\$PATH:~/.npm-global/bin${NC}"
+                echo -e "  4. Mở terminal mới và chạy lại lệnh cài đặt."
+                exit 1
+            fi
+        else
+            echo -e "${RED}[Lỗi] Không đủ quyền ghi và không tìm thấy lệnh sudo.${NC}"
+            exit 1
+        fi
     }
 else
     npm install -g . --unsafe-perm
