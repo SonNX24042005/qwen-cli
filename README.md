@@ -6,6 +6,50 @@ Dự án được trang bị giao diện người dùng tương tác **TUI (Term
 
 ---
 
+## 🚀 Hướng dẫn Cài đặt & Sử dụng toàn cục (Khuyên dùng)
+
+Để cài đặt ứng dụng dòng lệnh toàn cục và sử dụng từ bất kỳ thư mục nào trên máy tính giống như Claude Code, bạn có thể chọn một trong hai cách:
+
+### Cách 1: Sử dụng Script tải trực tiếp (Một dòng lệnh)
+Nếu dự án đã được đẩy lên GitHub, bạn hoặc người sử dụng có thể mở terminal ở bất kỳ đâu và chạy lệnh sau để tải và tự động cài đặt:
+```bash
+curl -fsSL https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh | bash
+```
+
+### Cách 2: Cài đặt từ thư mục mã nguồn cục bộ
+Nếu bạn đã clone sẵn dự án về máy:
+1. Mở terminal tại thư mục dự án và chạy:
+   ```bash
+   npm install -g .
+   ```
+   *(CLI sẽ tự động cài đặt các dependencies và tải trình duyệt Chromium cho Playwright).*
+
+2. **Khởi chạy ứng dụng**:
+   Tại bất kỳ thư mục nào trên máy tính, chỉ cần mở terminal và chạy:
+   ```bash
+   qwen-cli
+   ```
+
+---
+
+## 💻 Cách sử dụng cục bộ (Local Run)
+
+Nếu bạn chỉ muốn chạy thử nghiệm trực tiếp tại thư mục dự án mà không cài đặt toàn cục:
+
+1. **Cài đặt dependencies & browser**:
+   ```bash
+   npm install
+   npx playwright install chromium
+   ```
+2. **Khởi chạy**:
+   ```bash
+   npm start
+   ```
+
+*   **Đăng nhập lần đầu**: Khi chạy lần đầu (cục bộ hoặc toàn cục): CLI sẽ tự động mở ra một cửa sổ Chrome hiển thị. Bạn chỉ cần đăng nhập tài khoản Qwen của mình. CLI sẽ lưu token vào file `.env` và tự động chuyển về chế độ Terminal.
+
+---
+
 ## ✨ Các tính năng nổi bật
 
 1.  **Dropdown Autocomplete tương tác ( TAB Selection )**:
@@ -49,39 +93,21 @@ Dự án được trang bị giao diện người dùng tương tác **TUI (Term
     *   Người dùng có thể gõ phím, chuẩn bị sẵn câu hỏi, chọn mô hình hoặc các tính năng ngay lập tức mà không cần chờ kết nối hoàn tất.
 13. **Tự động xuất đoạn chat (Auto Chat Export)**:
     *   Tự động lưu lịch sử hội thoại khi kết thúc phản hồi của AI (khi bật tính năng này bằng lệnh `/export` hoặc `/ep`).
+    *   Hiển thị rõ ràng trạng thái hoạt động dưới dạng `💾 Xuất: BẬT/TẮT` trực tiếp trên thanh trạng thái (TUI Status Bar) ghim đáy terminal.
     *   Dữ liệu được lưu trong thư mục `output-qwen/` tại thư mục làm việc hiện tại dưới hai định dạng:
         *   `.json`: Chứa toàn bộ dữ liệu cấu trúc gốc từ Qwen Web API (phục vụ việc nạp ngược).
         *   `.md`: Định dạng Markdown dễ đọc, trình bày đẹp mắt các luồng suy nghĩ (Thinking Process) và tài liệu tham khảo tìm kiếm Web (Web Search References) trong các thẻ thu gọn `<details>`.
+    *   Trạng thái Bật/Tắt được ghi nhớ độc lập cho từng phòng chat và tự động lưu vào tệp cấu hình `output-qwen/auto_export_sessions.json`.
 14. **Nhập lịch sử trò chuyện (Import Chat History)**:
     *   Khôi phục cuộc trò chuyện cũ đã lưu từ file JSON hoặc Markdown bằng lệnh `/import <path>` hoặc `/ip <path>`.
+    *   Hỗ trợ tự động phân tích cú pháp tiêu đề Markdown (`### 👤 User` và `### 🤖 Assistant`) để khôi phục tệp nếu không có file JSON đi kèm, tự động loại bỏ các thẻ `<details>` thừa để giữ ngữ cảnh sạch sẽ.
     *   Sau khi khôi phục, cuộc trò chuyện sẽ hiển thị đầy đủ trên Terminal và tự động nạp lịch sử tương ứng vào phiên chat mới của Qwen ngầm. Bạn có thể gửi tin nhắn tiếp theo và Qwen sẽ nhận biết toàn bộ bối cảnh cuộc trò chuyện cũ này.
 
-
 ---
 
-## 🚀 Hướng dẫn Cài đặt
+## 💻 Cách sử dụng trong phiên Chat
 
-1.  **Cài đặt các gói phụ thuộc (Dependencies)**:
-    Mở terminal tại thư mục dự án và chạy:
-    ```bash
-    npm install
-    ```
-2.  **Cài đặt trình duyệt Playwright Chromium**:
-    ```bash
-    npx playwright install chromium
-    ```
-
----
-
-## 💻 Cách sử dụng
-
-### 1. Khởi chạy CLI
-```bash
-npm start
-```
-*   Nếu là lần đầu chạy: CLI sẽ mở ra một cửa sổ Chrome hiển thị. Bạn chỉ cần đăng nhập tài khoản Qwen của mình. CLI sẽ lưu token vào file `.env` và tự động tắt cửa sổ để bạn bắt đầu chat trên Terminal.
-
-### 2. Các câu lệnh điều khiển hệ thống (Gõ trực tiếp vào ô chat)
+### 1. Các câu lệnh điều khiển hệ thống (Gõ trực tiếp vào ô chat)
 *   **Chọn mô hình chat (Model Selector)**:
     ```
     /m
@@ -122,7 +148,7 @@ npm start
       ```
       /ep
       ```
-      *(Hoặc `/export`, dùng để bật hoặc tắt chế độ tự động lưu lịch sử chat sang Markdown & JSON vào thư mục `output-qwen/`)*
+      *(Hoặc `/export`, dùng để bật hoặc tắt chế độ tự động lưu lịch sử chat sang Markdown & JSON vào thư mục `output-qwen/`. Trạng thái bật/tắt sẽ hiển thị ở dòng `💾 Xuất: BẬT/TẮT` trên Status Bar đáy terminal).*
 *   **Khôi phục cuộc trò chuyện từ file (Import Chat)**:
       ```
       /ip <đường_dẫn_file>
@@ -134,11 +160,11 @@ npm start
       ```
       *(Hoặc nhấn tổ hợp phím `Ctrl + C`)*
 
-### 3. Cờ tham số khởi chạy dòng lệnh (CLI Parameters)
+### 2. Cờ tham số khởi chạy dòng lệnh (CLI Parameters)
 Bạn có thể cấu hình trước các chế độ khi bắt đầu ứng dụng:
 *   Chế độ mặc định: `node src/cli.js --mode fast` (hoặc `--think thinking`, `-t auto`)
 
-### 4. Cú pháp đính kèm tệp tin & thư mục và gợi ý câu lệnh
+### 3. Cú pháp đính kèm tệp tin & thư mục và gợi ý câu lệnh
 Bạn chỉ cần gõ ký tự `@` rồi gõ tên file/folder, hoặc gõ `/` để gọi danh sách lệnh hệ thống (nhấn phím **TAB** để chọn nhanh):
 *   **Gợi ý file tương tác**:
     > [You]: Giải thích logic trong file @src/ (nhấn TAB chọn file index.js) 
@@ -146,7 +172,7 @@ Bạn chỉ cần gõ ký tự `@` rồi gõ tên file/folder, hoặc gõ `/` đ
     > [You]: / (nhấn TAB chọn lệnh như `/model`, `/websearch`, `/exit`)
 *   **Quét và tải cả thư mục (Quét đệ quy)**:
     > [You]: Hãy rà soát toàn bộ mã nguồn trong folder @src và cho tôi biết có lỗ hổng bảo mật nào không.
-*   **Tải lên nhiều file trùng tên ở các thư mục khác nhau**:
+*   **Tải lên nhiều tệp trùng tên ở các thư mục khác nhau**:
     > [You]: So sánh nội dung hai tệp cấu hình @debug/test_x/conf.txt và @debug/test_y/conf.txt giúp tôi.
 
 ---

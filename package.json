@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node src/cli.js",
     "test": "node scripts/test_cli.js",
-    "debug": "node scripts/debug_page.js"
+    "debug": "node scripts/debug_page.js",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
