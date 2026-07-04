@@ -60,6 +60,10 @@ if grep -q "postinstall" package.json; then
     node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('package.json', 'utf8')); delete p.scripts.postinstall; fs.writeFileSync('package.json', JSON.stringify(p, null, 2), 'utf8');"
 fi
 
+# Cài đặt các dependencies cục bộ trước để làm thư viện chạy cho TUI
+echo -e "Đang tải các thư viện phụ thuộc..."
+npm install
+
 # Chạy cài đặt toàn cục
 if [ "$EUID" -ne 0 ]; then
     # Nếu không phải root, thử cài đặt trực tiếp, nếu lỗi quyền thì thử sudo
