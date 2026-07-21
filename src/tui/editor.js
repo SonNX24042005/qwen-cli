@@ -614,10 +614,12 @@ function formatUserPromptBlock(text, cols) {
 }
 
 let currentOnResumeChat = null;
+let currentOnCancelPrompt = null;
 
 // Đăng ký sự kiện lắng nghe bàn phím
-function setupTerminalInput(onSendMessage, onResumeChat) {
+function setupTerminalInput(onSendMessage, onResumeChat, onCancelPrompt) {
   currentOnResumeChat = onResumeChat;
+  currentOnCancelPrompt = onCancelPrompt;
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
@@ -628,6 +630,13 @@ function setupTerminalInput(onSendMessage, onResumeChat) {
     if (key && key.ctrl && key.name === 'c') {
       screen.consoleLog('\nĐang thoát chương trình...');
       await screen.shutdownTUI();
+    }
+
+    if (key && key.name === 'escape' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && !autocompleteVisible) {
+      if (currentOnCancelPrompt) {
+        currentOnCancelPrompt();
+        return;
+      }
     }
 
     // Phím tắt ctrl+d hoặc ctrl+t để bật/tắt hiển thị suy nghĩ chi tiết

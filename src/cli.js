@@ -141,9 +141,54 @@ async function handleImportChat(filePath) {
   screen.consoleLog(`[Hệ thống] Nhập lịch sử trò chuyện thành công! Đã khôi phục ${parsedMessages.length} tin nhắn.`);
 }
 
+let authPromptState = null; // null | { step: 'account' } | { step: 'password', account: string }
+
+function cancelAuthPrompt() {
+  if (authPromptState) {
+    authPromptState = null;
+    screen.consoleLog('[Hệ thống] Đã hủy nhập thông tin tài khoản/mật khẩu.');
+    editor.renderUI();
+  }
+}
+
 // Xử lý gửi tin nhắn chính thức của người dùng
 async function handleUserMessage(inputText) {
   const trimmedInput = inputText.trim();
+
+  // Nếu đang trong tiến trình nhập từng bước tài khoản/mật khẩu
+  if (authPromptState) {
+    if (authPromptState.step === 'account') {
+      const account = trimmedInput;
+      if (!account) {
+        screen.consoleLog('[Hệ thống] Đã hủy thiết lập tài khoản.');
+        authPromptState = null;
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      authPromptState = { step: 'password', account };
+      screen.consoleLog(`[Hệ thống] 🔒 Bước 2/2: Vui lòng nhập Mật khẩu cho tài khoản (${account}):`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+      return;
+    } else if (authPromptState.step === 'password') {
+      const password = trimmedInput;
+      const account = authPromptState.account;
+      authPromptState = null;
+      if (!password) {
+        screen.consoleLog('[Hệ thống] Đã hủy thiết lập mật khẩu.');
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      driver.saveCredentials(account, password);
+      screen.consoleLog(`[Hệ thống] ✅ Đã lưu thành công tài khoản (${account})! Lần sau khi token hết hạn, ứng dụng sẽ tự động đăng nhập ngầm.`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+      return;
+    }
+  }
+
   if (!trimmedInput) {
     editor.setIsWaitingResponse(false);
     editor.renderUI();
@@ -229,20 +274,22 @@ async function handleUserMessage(inputText) {
     if (cmd === '/auth' || cmd === '/login') {
       const account = parts[1];
       const password = parts[2];
-      if (!account || !password) {
-        screen.consoleLog('[Hệ thống] Cú pháp lưu tài khoản tự động: /auth <tài_khoản> <mật_khẩu>');
-        const currentCreds = driver.getSavedCredentials();
-        if (currentCreds) {
-          screen.consoleLog(`[Hệ thống] Tài khoản đang lưu tự động: ${currentCreds.account}`);
-        } else {
-          screen.consoleLog('[Hệ thống] Hiện tại chưa có tài khoản nào được lưu.');
-        }
+      
+      if (account && password) {
+        driver.saveCredentials(account, password);
+        screen.consoleLog(`[Hệ thống] ✅ Đã lưu thành công tài khoản (${account})! Lần sau khi token hết hạn, ứng dụng sẽ tự động đăng nhập ngầm.`);
         editor.setIsWaitingResponse(false);
         editor.renderUI();
         return;
       }
-      driver.saveCredentials(account, password);
-      screen.consoleLog(`[Hệ thống] Đã lưu thành công tài khoản (${account})! Lần sau khi token hết hạn, ứng dụng sẽ tự động đăng nhập ngầm.`);
+
+      // Kích hoạt tiến trình nhập từng bước tương tác
+      const currentCreds = driver.getSavedCredentials();
+      if (currentCreds) {
+        screen.consoleLog(`[Hệ thống] Tài khoản đang lưu hiện tại: ${currentCreds.account}`);
+      }
+      authPromptState = { step: 'account' };
+      screen.consoleLog(`[Hệ thống] 🔑 Bước 1/2: Vui lòng nhập Tài khoản/Email/SĐT của bạn (Nhấn Enter để hủy):`);
       editor.setIsWaitingResponse(false);
       editor.renderUI();
       return;
@@ -785,7 +832,7 @@ async function main() {
   // 3. Khởi tạo lắng nghe bàn phím và vẽ UI ngay lập tức để người dùng có thể nhập liệu/chọn tính năng
   try {
     screen.setResizeCallback(rebuildScrollBuffer);
-    editor.setupTerminalInput(handleUserMessage, onResumeChat);
+    editor.setupTerminalInput(handleUserMessage, onResumeChat, cancelAuthPrompt);
     editor.renderUI();
   } catch (err) {
     screen.consoleError(`\n[Lỗi hiển thị TUI]: ${err.message}`);
