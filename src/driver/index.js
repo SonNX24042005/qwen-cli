@@ -509,6 +509,7 @@ function checkAndSyncNewChatExport() {
 /**
  * Lấy danh sách mô hình thực tế từ API của Qwen.
  * Được gọi sau khi initBrowser() hoàn tất.
+ * Response thực tế: { success: true, data: { data: [...] } }
  * @returns {Promise<Array<{display:string, value:string}>>}
  */
 async function getModelsFromWeb() {
@@ -519,14 +520,24 @@ async function getModelsFromWeb() {
         const res = await fetch('/api/v2/models/');
         if (!res.ok) return [];
         const json = await res.json();
-        // API có thể trả về { success, data: [...] } hoặc trực tiếp mảng
-        const list = json.success && Array.isArray(json.data)
-          ? json.data
-          : Array.isArray(json) ? json : [];
+
+        // Cấu trúc thực tế: { success: true, data: { data: [...] } }
+        // Hỗ trợ cả: { success, data: [...] }, mảng trực tiếp (fallback)
+        let list = [];
+        if (json.success) {
+          if (json.data && Array.isArray(json.data.data)) {
+            list = json.data.data;          // { data: { data: [...] } }
+          } else if (Array.isArray(json.data)) {
+            list = json.data;               // { data: [...] }
+          }
+        } else if (Array.isArray(json)) {
+          list = json;                      // mảng trực tiếp
+        }
+
         return list
           .filter(m => m && (m.id || m.model))
           .map(m => ({
-            display: m.title || m.name || m.id || m.model,
+            display: m.name || m.title || m.id || m.model,
             value: m.id || m.model
           }));
       } catch (_) {
