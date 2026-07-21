@@ -735,8 +735,20 @@ async function main() {
 
   // 2. Khởi chạy trình duyệt và kết nối trong background (tự ghi nhận kết quả và cập nhật isBrowserReady)
   browserInitPromise = driver.initBrowser(onChunk, onDone, onError)
-    .then(() => {
+    .then(async () => {
       isBrowserReady = true;
+
+      // Lấy danh sách model thật từ server và cập nhật dropdown
+      try {
+        const fetchedModels = await driver.getModelsFromWeb();
+        if (fetchedModels && fetchedModels.length > 0) {
+          editor.setModelOptions(fetchedModels);
+          editor.renderUI(); // Vẽ lại TUI để áp dụng danh sách model mới
+          screen.consoleLog(`[Hệ thống] Đã tải ${fetchedModels.length} mô hình từ Qwen.`);
+        }
+      } catch (_) {
+        // Bỏ qua lỗi - danh sách dự phòng đã được dùng
+      }
     })
     .catch(async (err) => {
       screen.consoleError(`\n[Lỗi khởi động]: ${err.message}`);

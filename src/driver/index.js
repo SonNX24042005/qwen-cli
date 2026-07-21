@@ -506,6 +506,39 @@ function checkAndSyncNewChatExport() {
   return null;
 }
 
+/**
+ * Lấy danh sách mô hình thực tế từ API của Qwen.
+ * Được gọi sau khi initBrowser() hoàn tất.
+ * @returns {Promise<Array<{display:string, value:string}>>}
+ */
+async function getModelsFromWeb() {
+  if (!page) return [];
+  try {
+    const models = await page.evaluate(async () => {
+      try {
+        const res = await fetch('/api/v2/models/');
+        if (!res.ok) return [];
+        const json = await res.json();
+        // API có thể trả về { success, data: [...] } hoặc trực tiếp mảng
+        const list = json.success && Array.isArray(json.data)
+          ? json.data
+          : Array.isArray(json) ? json : [];
+        return list
+          .filter(m => m && (m.id || m.model))
+          .map(m => ({
+            display: m.title || m.name || m.id || m.model,
+            value: m.id || m.model
+          }));
+      } catch (_) {
+        return [];
+      }
+    });
+    return Array.isArray(models) ? models : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 module.exports = {
   initBrowser,
   sendPrompt,
@@ -529,5 +562,6 @@ module.exports = {
   isExportModeEnabled,
   toggleExportMode,
   setExportMode,
-  checkAndSyncNewChatExport
+  checkAndSyncNewChatExport,
+  getModelsFromWeb
 };

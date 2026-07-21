@@ -58,38 +58,44 @@ const thinkingOptions = [
   { display: 'Fast (Trả lời nhanh)', value: 'fast' }
 ];
 
-const modelOptions = [
+// Danh sách model dự phòng (dùng khi chưa tải được từ server)
+let modelOptions = [
   // Thế hệ 3.7
   { display: 'Qwen3.7-Plus', value: 'qwen3.7-plus' },
   { display: 'Qwen3.7-Max', value: 'qwen3.7-max' },
-  // { display: 'Qwen3.7-Max-Preview', value: 'qwen-latest-series-invite-beta-v24' },
-  // { display: 'Qwen3.7-Plus-Preview', value: 'qwen-latest-series-invite-beta-v16' },
 
   // Thế hệ 3.6
   { display: 'Qwen3.6-Plus', value: 'qwen3.6-plus' },
   { display: 'Qwen3.6-Max-Preview', value: 'qwen3.6-max-preview' },
-  // { display: 'Qwen3.6-35B-A3B', value: 'qwen3.6-35b-a3b' },
-  // { display: 'Qwen3.6-27B', value: 'qwen3.6-27b' },
-  // { display: 'Qwen3.6-Plus-Preview', value: 'qwen3.6-plus-preview' },
 
   // Thế hệ 3.5
   { display: 'Qwen3.5-Plus', value: 'qwen3.5-plus' },
   { display: 'Qwen3.5-Max-Preview', value: 'qwen3.5-max-2026-03-08' },
   { display: 'Qwen3.5-Omni-Plus', value: 'qwen3.5-omni-plus' },
   { display: 'Qwen3.5-Flash', value: 'qwen3.5-flash' },
-  // { display: 'Qwen3.5-397B-A17B', value: 'qwen3.5-397b-a17b' },
-  // { display: 'Qwen3.5-122B-A10B', value: 'qwen3.5-122b-a10b' },
   { display: 'Qwen3.5-Omni-Flash', value: 'qwen3.5-omni-flash' },
-  // { display: 'Qwen3.5-27B', value: 'qwen3.5-27b' },
-  // { display: 'Qwen3.5-35B-A3B', value: 'qwen3.5-35b-a3b' },
 
   // Thế hệ Qwen3
   { display: 'Qwen3-Max', value: 'qwen3-max-2026-01-23' },
-  // { display: 'Qwen3-235B-A22B', value: 'qwen-plus-2025-07-28' },
   { display: 'Qwen3-Coder', value: 'qwen3-coder-plus' },
   { display: 'Qwen3-VL-235B-A22B', value: 'qwen3-vl-plus' },
   { display: 'Qwen3-Omni-Flash', value: 'qwen3-omni-flash-2025-12-01' }
 ];
+
+/**
+ * Cập nhật danh sách model động (gọi từ cli.js sau khi lấy được từ server).
+ * @param {Array<{display:string, value:string}>} newModels
+ */
+function setModelOptions(newModels) {
+  if (!Array.isArray(newModels) || newModels.length === 0) return;
+  modelOptions = newModels;
+  // Reset selection về đầu để tránh index out-of-bounds
+  modelSelectedIdx = 0;
+}
+
+function getModelOptions() {
+  return modelOptions;
+}
 
 const slashCommands = [
   { display: '/model (Thay đổi mô hình chat)', value: '/model' },
@@ -902,5 +908,7 @@ module.exports = {
   setupTerminalInput,
   setIsWaitingResponse,
   showHistorySelection,
-  formatUserPromptBlock
+  formatUserPromptBlock,
+  setModelOptions,
+  getModelOptions
 };
