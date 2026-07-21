@@ -7,7 +7,7 @@ const { launchBrowser } = require('./launcher');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const { INIT_SCRIPT } = require('./hook');
-const { checkIsGuest, runInteractiveLogin, checkHasCaptcha, BASE_URL } = require('./auth');
+const { checkIsGuest, runInteractiveLogin, checkHasCaptcha, loadSavedToken, getStorageStatePath, getConfigDir, BASE_URL } = require('./auth');
 
 const INPUT_SELECTOR = 'textarea.message-input-textarea, textarea:not([readonly]):not([disabled])';
 
@@ -75,17 +75,27 @@ async function runInteractiveCaptchaSolver(failedPromptText) {
 
   await closeBrowser().catch(() => {});
 
-  const captchaBrowser = await launchBrowser({
+  const storageStatePath = getStorageStatePath();
+  const contextOptions = {
     headless: false,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled']
-  });
+  };
+  if (fs.existsSync(storageStatePath)) {
+    try {
+      contextOptions.storageState = storageStatePath;
+    } catch (e) {}
+  }
 
-  const token = process.env.QWEN_TOKEN;
-  const captchaCtx = await captchaBrowser.newContext();
-  await captchaCtx.addCookies([
-    { name: 'token', value: token, domain: 'chat.qwen.ai', path: '/' }
-  ]);
-  await captchaCtx.addInitScript(INIT_SCRIPT(token));
+  const captchaBrowser = await launchBrowser(contextOptions);
+  const captchaCtx = await captchaBrowser.newContext(contextOptions.storageState ? { storageState: storageStatePath } : {});
+
+  const token = loadSavedToken();
+  if (token) {
+    await captchaCtx.addCookies([
+      { name: 'token', value: token, domain: 'chat.qwen.ai', path: '/' }
+    ]).catch(() => {});
+    await captchaCtx.addInitScript(INIT_SCRIPT(token));
+  }
 
   const captchaPage = await captchaCtx.newPage();
   await syncPageState(captchaPage);
@@ -156,28 +166,21 @@ async function uploadFile(filePath) {
   const relativePath = path.relative(process.cwd(), resolvedPath);
   const ext = path.extname(resolvedPath);
   
-  // Sử dụng ký tự gạch ngang kép '--' để thay thế cho dấu phân cách thư mục (path.sep).
-  // Điều này giúp phân biệt rõ ràng với dấu gạch dưới '_' vốn có thể nằm trong tên file gốc (ví dụ: ten_file.md).
-  // Kết quả chuyển đổi:
-  // - 'sub/folder/ten_file.md'   -> 'sub--folder--ten_file.md'
-  // - 'sub_folder/ten_file.md'   -> 'sub_folder--ten_file.md'
   const safeRelativeName = relativePath
     .split(path.sep)
     .join('--')
-    .replace(/[^a-zA-Z0-9_.-]/g, '_'); // Thay các ký tự không an toàn khác bằng '_'
+    .replace(/[^a-zA-Z0-9_.-]/g, '_');
 
   const debugDir = path.resolve(process.cwd(), 'debug');
   if (!fs.existsSync(debugDir)) {
     fs.mkdirSync(debugDir, { recursive: true });
   }
 
-  // Tạo file tạm chứa tên cấu trúc tương đối
   const tempFilePath = path.join(debugDir, safeRelativeName);
   
   try {
     let content = fs.readFileSync(resolvedPath, 'utf8');
     
-    // Chỉ chèn chú thích đường dẫn nếu là file văn bản phổ biến
     const lowerExt = ext.toLowerCase();
     const textExtensions = ['.js', '.jsx', '.ts', '.tsx', '.json', '.md', '.txt', '.html', '.css', '.yaml', '.yml'];
     
@@ -195,7 +198,6 @@ async function uploadFile(filePath) {
     
     fs.writeFileSync(tempFilePath, content, 'utf8');
   } catch (err) {
-    // Nếu là file binary (ảnh, pdf) không đọc được dạng text, chỉ copy trực tiếp tệp gốc sang tên mới
     try {
       fs.copyFileSync(resolvedPath, tempFilePath);
     } catch (copyErr) {
@@ -206,24 +208,19 @@ async function uploadFile(filePath) {
   console.log(`[Driver] Đang tải file lên Qwen: ${safeRelativeName} (Gốc: ${relativePath})...`);
   
   try {
-    // 1. Click mở menu dấu cộng (+) của ô chat
     await page.click('.mode-select');
     await page.waitForTimeout(500);
 
-    // 2. Chờ sự kiện chọn file từ hệ thống xuất hiện khi click vào "Upload attachment"
     const [fileChooser] = await Promise.all([
       page.waitForEvent('filechooser', { timeout: 15000 }),
       page.click('text="Upload attachment"')
     ]);
 
-    // 3. Gán file tạm vào file chooser
     await fileChooser.setFiles(tempFilePath);
     
-    // 4. Chờ 5 giây để Qwen Web thực thi tiến trình upload file lên server
     await page.waitForTimeout(5000);
     console.log(`[Driver] Tải file lên thành công: ${safeRelativeName}`);
   } finally {
-    // 5. Tự động dọn dẹp file tạm để giữ thư mục debug sạch sẽ
     try {
       if (fs.existsSync(tempFilePath)) {
         fs.unlinkSync(tempFilePath);
@@ -239,14 +236,23 @@ async function initBrowser(onChunk, onDone, onError) {
   currentOnDone = onDone;
   currentOnError = onError;
 
-  let token = process.env.QWEN_TOKEN;
+  let token = loadSavedToken();
 
   if (!token || token.trim() === '') {
     await runInteractiveLogin();
-    token = process.env.QWEN_TOKEN;
+    token = loadSavedToken();
   }
 
   console.log('[Driver] Đang khởi chạy Chromium ẩn danh...');
+  
+  const storageStatePath = getStorageStatePath();
+  const contextOptions = {};
+  if (fs.existsSync(storageStatePath)) {
+    try {
+      contextOptions.storageState = storageStatePath;
+    } catch (e) {}
+  }
+
   browser = await launchBrowser({
     headless: true,
     args: [
@@ -258,11 +264,14 @@ async function initBrowser(onChunk, onDone, onError) {
     ]
   });
 
-  context = await browser.newContext();
-  await context.addCookies([
-    { name: 'token', value: token, domain: 'chat.qwen.ai', path: '/' }
-  ]);
-  await context.addInitScript(INIT_SCRIPT(token));
+  context = await browser.newContext(contextOptions);
+
+  if (token) {
+    await context.addCookies([
+      { name: 'token', value: token, domain: 'chat.qwen.ai', path: '/' }
+    ]).catch(() => {});
+    await context.addInitScript(INIT_SCRIPT(token));
+  }
 
   page = await context.newPage();
 
@@ -289,21 +298,36 @@ async function initBrowser(onChunk, onDone, onError) {
   console.log(`[Driver] Đang truy cập ${BASE_URL}...`);
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
+  // Chờ ô nhập liệu xuất hiện HOẶC chờ chuyển hướng sang trang guest/login
+  console.log('[Driver] Chờ xác thực phiên làm việc...');
+  try {
+    await Promise.race([
+      page.waitForSelector(INPUT_SELECTOR, { timeout: 15000 }),
+      page.waitForURL((url) => url.href.includes('/guest') || url.href.includes('/login'), { timeout: 15000 })
+    ]);
+  } catch (e) {}
+
   const isGuest = await checkIsGuest(page);
   if (isGuest) {
-    console.log('[Driver] Token hiện tại đã hết hạn hoặc không hợp lệ.');
+    console.log('[Driver] Token hoặc phiên làm việc hiện tại đã hết hạn.');
     await closeBrowser().catch(() => {});
     await runInteractiveLogin();
     await initBrowser(onChunk, onDone, onError);
     return;
   }
 
-  console.log('[Driver] Chờ tải ô nhập liệu...');
-  await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
-  
   await syncPageState(page);
 
-  await page.waitForTimeout(2000);
+  // Cập nhật storageState mới nhất sau khi khởi tạo thành công
+  try {
+    const configDir = getConfigDir();
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    await context.storageState({ path: storageStatePath });
+  } catch (e) {}
+
+  await page.waitForTimeout(1000);
   
   console.log('[Driver] Kết nối thành công và đã sẵn sàng chat!');
 }
