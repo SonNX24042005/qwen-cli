@@ -222,6 +222,33 @@ async function handleUserMessage(inputText) {
     }
   }
 
+  // Xử lý lệnh lưu/xem tài khoản & mật khẩu tự động đăng nhập
+  if (trimmedInput.startsWith('/auth') || trimmedInput.startsWith('/login')) {
+    const parts = trimmedInput.split(/\s+/);
+    const cmd = parts[0];
+    if (cmd === '/auth' || cmd === '/login') {
+      const account = parts[1];
+      const password = parts[2];
+      if (!account || !password) {
+        screen.consoleLog('[Hệ thống] Cú pháp lưu tài khoản tự động: /auth <tài_khoản> <mật_khẩu>');
+        const currentCreds = driver.getSavedCredentials();
+        if (currentCreds) {
+          screen.consoleLog(`[Hệ thống] Tài khoản đang lưu tự động: ${currentCreds.account}`);
+        } else {
+          screen.consoleLog('[Hệ thống] Hiện tại chưa có tài khoản nào được lưu.');
+        }
+        editor.setIsWaitingResponse(false);
+        editor.renderUI();
+        return;
+      }
+      driver.saveCredentials(account, password);
+      screen.consoleLog(`[Hệ thống] Đã lưu thành công tài khoản (${account})! Lần sau khi token hết hạn, ứng dụng sẽ tự động đăng nhập ngầm.`);
+      editor.setIsWaitingResponse(false);
+      editor.renderUI();
+      return;
+    }
+  }
+
   // Xử lý lệnh tự động cập nhật phần mềm từ trong phiên chat
   if (trimmedInput === '/update' || trimmedInput === '/up') {
     runAppUpdate();

@@ -9,6 +9,7 @@ const BASE_URL = 'https://chat.qwen.ai';
 
 const CONFIG_DIR = path.join(os.homedir(), '.qwen-cli');
 const STORAGE_STATE_PATH = path.join(CONFIG_DIR, 'storage_state.json');
+const CREDENTIALS_PATH = path.join(CONFIG_DIR, 'credentials.json');
 const USER_ENV_PATH = path.join(CONFIG_DIR, '.env');
 const PROJECT_ENV_PATH = path.join(__dirname, '../../.env');
 
@@ -18,6 +19,44 @@ function getStorageStatePath() {
 
 function getConfigDir() {
   return CONFIG_DIR;
+}
+
+// Lưu tài khoản & mật khẩu để tự động đăng nhập khi token hết hạn
+function saveCredentials(account, password) {
+  try {
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    const data = {
+      account: String(account || '').trim(),
+      password: String(password || '')
+    };
+    fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Driver] Không thể lưu thông tin tài khoản:', e.message);
+  }
+}
+
+// Lấy thông tin tài khoản & mật khẩu đã lưu
+function getSavedCredentials() {
+  try {
+    if (fs.existsSync(CREDENTIALS_PATH)) {
+      const data = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+      if (data && data.account && data.password) {
+        return data;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Xóa tài khoản & mật khẩu đã lưu khi đăng nhập thất bại do sai mật khẩu
+function clearSavedCredentials() {
+  try {
+    if (fs.existsSync(CREDENTIALS_PATH)) {
+      fs.unlinkSync(CREDENTIALS_PATH);
+    }
+  } catch (e) {}
 }
 
 // Đọc token đã lưu từ file .env ở thư mục cá nhân hoặc thư mục dự án
@@ -89,6 +128,110 @@ async function checkIsGuest(targetPage) {
   }
 }
 
+// Thử tự động đăng nhập ngầm bằng tài khoản & mật khẩu đã lưu khi token hết hạn
+async function attemptAutoLogin(account, password) {
+  console.log(`[Driver] Phát hiện tài khoản đã lưu (${account}). Đang tự động đăng nhập ngầm...`);
+
+  let autoBrowser = null;
+  try {
+    autoBrowser = await launchBrowser({
+      headless: true,
+      args: ['--no-sandbox', '--disable-blink-features=AutomationControlled']
+    });
+
+    const autoCtx = await autoBrowser.newContext();
+    const autoPage = await autoCtx.newPage();
+
+    await autoPage.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await autoPage.waitForTimeout(2000);
+
+    const loginClickable = await autoPage.$('button:has-text("Log in"), a:has-text("Log in"), button:has-text("Sign in"), .login-btn').catch(() => null);
+    if (loginClickable) {
+      await loginClickable.click().catch(() => {});
+      await autoPage.waitForTimeout(1500);
+    }
+
+    const userInput = await autoPage.waitForSelector(
+      'input[type="text"], input[type="email"], input[placeholder*="Email"], input[placeholder*="phone"], input[name="username"], input[name="account"]',
+      { timeout: 8000 }
+    ).catch(() => null);
+
+    const passInput = await autoPage.waitForSelector(
+      'input[type="password"]',
+      { timeout: 8000 }
+    ).catch(() => null);
+
+    if (!userInput || !passInput) {
+      console.log('[Driver] Không tìm thấy form đăng nhập tự động.');
+      await autoBrowser.close().catch(() => {});
+      return null;
+    }
+
+    await userInput.fill(account);
+    await passInput.fill(password);
+    await autoPage.waitForTimeout(500);
+
+    const submitBtn = await autoPage.$('button[type="submit"], button:has-text("Log in"), button:has-text("Sign in"), button:has-text("Đăng nhập")').catch(() => null);
+    if (submitBtn) {
+      await submitBtn.click().catch(() => {});
+    } else {
+      await passInput.press('Enter').catch(() => {});
+    }
+
+    await autoPage.waitForTimeout(3000);
+
+    // Kiểm tra nếu trang trả về thông báo sai mật khẩu hoặc tài khoản không tồn tại
+    const errorText = await autoPage.evaluate(() => {
+      const el = document.body;
+      return (el && el.innerText) || '';
+    }).catch(() => '');
+
+    const isWrongPassword = /incorrect|invalid account|invalid password|wrong password|sai mật khẩu|không chính xác|không đúng|mật khẩu sai|error code/i.test(errorText);
+
+    if (isWrongPassword) {
+      await autoBrowser.close().catch(() => {});
+      const err = new Error('INVALID_CREDENTIALS');
+      err.code = 'INVALID_CREDENTIALS';
+      throw err;
+    }
+
+    let detectedToken = null;
+    for (let i = 0; i < 15; i++) {
+      await autoPage.waitForTimeout(1000);
+      const isGuest = await checkIsGuest(autoPage);
+      if (!isGuest) {
+        detectedToken = await autoPage.evaluate(() => {
+          return localStorage.getItem('token') || localStorage.getItem('active_token');
+        }).catch(() => null);
+
+        if (!detectedToken) {
+          const cookies = await autoCtx.cookies();
+          const tokenCookie = cookies.find(c => c.name === 'token');
+          if (tokenCookie && tokenCookie.value) {
+            detectedToken = tokenCookie.value;
+          }
+        }
+
+        if (detectedToken && detectedToken.length > 50) {
+          console.log('[Driver] Tự động đăng nhập thành công!');
+          updateEnvToken(detectedToken);
+          if (!fs.existsSync(CONFIG_DIR)) {
+            fs.mkdirSync(CONFIG_DIR, { recursive: true });
+          }
+          await autoCtx.storageState({ path: STORAGE_STATE_PATH }).catch(() => {});
+          break;
+        }
+      }
+    }
+
+    await autoBrowser.close().catch(() => {});
+    return detectedToken;
+  } catch (err) {
+    if (autoBrowser) await autoBrowser.close().catch(() => {});
+    throw err;
+  }
+}
+
 // Khởi chạy chế độ đăng nhập tương tác (Headful)
 async function runInteractiveLogin() {
   console.log('\n[Hệ thống] Đang mở trình duyệt (Headful Mode) để bạn đăng nhập...');
@@ -145,6 +288,11 @@ async function runInteractiveLogin() {
         } catch (saveErr) {
           console.warn('[Driver] Không thể lưu storageState:', saveErr.message);
         }
+
+        if (!getSavedCredentials()) {
+          console.log('💡 GỢI Ý: Bạn có thể lưu tài khoản & mật khẩu bằng lệnh /auth <tài_khoản> <mật_khẩu> để tự động đăng nhập khi hết hạn token!');
+        }
+
         break;
       }
     }
@@ -175,6 +323,10 @@ module.exports = {
   runInteractiveLogin,
   checkHasCaptcha,
   loadSavedToken,
+  saveCredentials,
+  getSavedCredentials,
+  clearSavedCredentials,
+  attemptAutoLogin,
   getStorageStatePath,
   getConfigDir,
   BASE_URL

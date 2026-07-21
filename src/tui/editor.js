@@ -116,6 +116,7 @@ const slashCommands = [
   { display: '/ep (Bật/tắt tự động xuất chat)', value: '/ep' },
   { display: '/import (Nhập lịch sử chat từ file)', value: '/import' },
   { display: '/ip (Nhập lịch sử chat từ file)', value: '/ip' },
+  { display: '/auth (Lưu tài khoản & mật khẩu tự động)', value: '/auth' },
   { display: '/update (Cập nhật ứng dụng lên bản mới nhất)', value: '/update' },
   { display: '/up (Cập nhật ứng dụng lên bản mới nhất)', value: '/up' },
   { display: '/exit (Thoát ứng dụng)', value: '/exit' }

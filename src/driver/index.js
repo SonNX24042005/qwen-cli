@@ -7,7 +7,19 @@ const { launchBrowser } = require('./launcher');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const { INIT_SCRIPT } = require('./hook');
-const { checkIsGuest, runInteractiveLogin, checkHasCaptcha, loadSavedToken, getStorageStatePath, getConfigDir, BASE_URL } = require('./auth');
+const { 
+  checkIsGuest, 
+  runInteractiveLogin, 
+  checkHasCaptcha, 
+  loadSavedToken, 
+  saveCredentials,
+  getSavedCredentials,
+  clearSavedCredentials,
+  attemptAutoLogin,
+  getStorageStatePath, 
+  getConfigDir, 
+  BASE_URL 
+} = require('./auth');
 
 const INPUT_SELECTOR = 'textarea.message-input-textarea, textarea:not([readonly]):not([disabled])';
 
@@ -238,6 +250,26 @@ async function initBrowser(onChunk, onDone, onError) {
 
   let token = loadSavedToken();
 
+  // 1. Nếu chưa có token hoặc hết hạn, thử tự động đăng nhập ngầm bằng tài khoản & mật khẩu đã lưu
+  const savedCreds = getSavedCredentials();
+  if ((!token || token.trim() === '') && savedCreds && savedCreds.account && savedCreds.password) {
+    try {
+      const autoToken = await attemptAutoLogin(savedCreds.account, savedCreds.password);
+      if (autoToken) {
+        token = autoToken;
+      }
+    } catch (err) {
+      if (err.code === 'INVALID_CREDENTIALS' || err.message === 'INVALID_CREDENTIALS') {
+        console.log('\n[LỖI ĐĂNG NHẬP TỰ ĐỘNG] ❌ Mật khẩu hoặc tài khoản đã lưu KHÔNG CHÍNH XÁC!');
+        console.log('[Hệ thống] Đã tự động xóa thông tin tài khoản/mật khẩu sai khỏi bộ nhớ.');
+        clearSavedCredentials();
+      } else {
+        console.log('[Driver] Tự động đăng nhập ngầm thất bại, sẽ mở đăng nhập tương tác...');
+      }
+    }
+  }
+
+  // 2. Nếu vẫn chưa có token, mở trình duyệt cho người dùng tự đăng nhập tương tác
   if (!token || token.trim() === '') {
     await runInteractiveLogin();
     token = loadSavedToken();
@@ -310,6 +342,26 @@ async function initBrowser(onChunk, onDone, onError) {
   const isGuest = await checkIsGuest(page);
   if (isGuest) {
     console.log('[Driver] Token hoặc phiên làm việc hiện tại đã hết hạn.');
+    
+    // Thử tự động đăng nhập lại bằng tài khoản mật khẩu đã lưu
+    const creds = getSavedCredentials();
+    if (creds && creds.account && creds.password) {
+      try {
+        const autoToken = await attemptAutoLogin(creds.account, creds.password);
+        if (autoToken) {
+          await closeBrowser().catch(() => {});
+          await initBrowser(onChunk, onDone, onError);
+          return;
+        }
+      } catch (err) {
+        if (err.code === 'INVALID_CREDENTIALS' || err.message === 'INVALID_CREDENTIALS') {
+          console.log('\n[LỖI ĐĂNG NHẬP TỰ ĐỘNG] ❌ Mật khẩu hoặc tài khoản đã lưu KHÔNG CHÍNH XÁC!');
+          console.log('[Hệ thống] Đã xóa thông tin tài khoản/mật khẩu sai khỏi bộ nhớ.');
+          clearSavedCredentials();
+        }
+      }
+    }
+
     await closeBrowser().catch(() => {});
     await runInteractiveLogin();
     await initBrowser(onChunk, onDone, onError);
@@ -598,5 +650,8 @@ module.exports = {
   toggleExportMode,
   setExportMode,
   checkAndSyncNewChatExport,
-  getModelsFromWeb
+  getModelsFromWeb,
+  saveCredentials,
+  getSavedCredentials,
+  clearSavedCredentials
 };
