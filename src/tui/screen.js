@@ -85,10 +85,12 @@ function setRenderUICallback(cb) {
   renderUICallback = cb;
 }
 
+let lastMaxLinesCleared = 0;
+
 // Hàm vẽ lại vùng cuộn dựa trên chiều cao terminal hiện tại và scrollOffset
 function refreshScrollRegion() {
   const rows = process.stdout.rows || 24;
-  const maxLines = rows - statusBarHeight - promptLinesCount; // Chiều cao tối đa của vùng cuộn
+  const maxLines = Math.max(1, rows - statusBarHeight - promptLinesCount); // Chiều cao tối đa của vùng cuộn
 
   const allLines = scrollContentBuffer.split('\n');
   if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
@@ -105,8 +107,11 @@ function refreshScrollRegion() {
   const endIdx = allLines.length - scrollOffset;
   const visibleLines = allLines.slice(startIdx, endIdx);
 
-  // 1. Xóa sạch vùng cuộn (từ dòng 1 đến rows - statusBarHeight - promptLinesCount)
-  for (let i = 1; i <= rows - statusBarHeight - promptLinesCount; i++) {
+  // 1. Xóa sạch vùng cuộn (tính cả chiều cao vùng cũ để tránh đọng lại artifact)
+  const clearLimit = Math.max(maxLines, lastMaxLinesCleared);
+  lastMaxLinesCleared = maxLines;
+
+  for (let i = 1; i <= clearLimit; i++) {
     process.stdout.write(`\x1b[${i};1H\x1b[K`);
   }
 
@@ -116,7 +121,7 @@ function refreshScrollRegion() {
   });
 
   // 3. Đặt con trỏ in ấn ở dòng rows - statusBarHeight - promptLinesCount và lưu lại vị trí
-  process.stdout.write(`\x1b[${rows - statusBarHeight - promptLinesCount};1H\x1b[s`);
+  process.stdout.write(`\x1b[${maxLines};1H\x1b[s`);
 }
 
 // Hàm in nội dung an toàn vào Vùng cuộn (Scroll Region)
@@ -124,8 +129,9 @@ function printInScrollRegion(text) {
   if (hasThinkingSpinner && scrollContentBuffer.length > 0) {
     const spinnerChar = scrollContentBuffer.slice(-1);
     scrollContentBuffer = scrollContentBuffer.slice(0, -1);
-    scrollContentBuffer += text;
-    scrollContentBuffer += spinnerChar;
+    const lines = (scrollContentBuffer + text).split('\n');
+    lines[lines.length - 1] += spinnerChar;
+    scrollContentBuffer = lines.join('\n');
   } else {
     scrollContentBuffer += text;
   }

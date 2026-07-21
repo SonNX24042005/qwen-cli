@@ -134,12 +134,46 @@ function drawTopBorder(boxWidth, title) {
   }
 }
 
-function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selectedIdx, title, getDisplay) {
-  const terminalRows = process.stdout.rows || 24;
+function calculateCursorPosition(cols) {
+  const segments = getWrappedSegments(inputBuffer, cols);
+  let cursorLineIdx = 0;
+  let cursorCol = 0;
+  
+  const firstLineLimit = cols - 5;
+  if (cursorOffset <= firstLineLimit) {
+    cursorLineIdx = 0;
+    cursorCol = 5 + cursorOffset;
+  } else {
+    let remainingOffset = cursorOffset - firstLineLimit;
+    cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
+    cursorCol = remainingOffset % cols;
+  }
+  
+  if (cursorCol >= cols) {
+    cursorCol = 0;
+    cursorLineIdx += 1;
+  }
+  
+  const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
+  return { segments, cursorLineIdx, cursorCol, promptLinesCount };
+}
+
+function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selectedIdx, title, getDisplay, maxVisible = 12) {
+  const terminalRows = rows || process.stdout.rows || 24;
   const terminalCols = process.stdout.columns || 80;
   const boxWidth = Math.max(40, terminalCols - 8);
   const textWidth = boxWidth - 8;
-  const menuLength = items.length;
+
+  let startIdx = 0;
+  if (items.length > maxVisible) {
+    startIdx = Math.max(0, selectedIdx - Math.floor(maxVisible / 2));
+    if (startIdx + maxVisible > items.length) {
+      startIdx = items.length - maxVisible;
+    }
+  }
+  const visibleItems = items.slice(startIdx, startIdx + maxVisible);
+  const visibleSelectedIdx = selectedIdx - startIdx;
+  const menuLength = visibleItems.length;
 
   // 1. Draw Top Border
   const topBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2);
@@ -147,11 +181,11 @@ function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selecte
   process.stdout.write(drawTopBorder(boxWidth, title));
 
   // 2. Draw Items
-  items.forEach((item, idx) => {
-    const lineRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2) + 1 + idx;
+  visibleItems.forEach((item, idx) => {
+    const lineRow = topBorderRow + 1 + idx;
     process.stdout.write(`\x1b[${lineRow};1H\x1b[K`);
     
-    const isSelected = idx === selectedIdx;
+    const isSelected = idx === visibleSelectedIdx;
     const displayText = getDisplay(item);
     const displayTitle = displayText.length > textWidth
       ? displayText.substring(0, textWidth - 3) + '...'
@@ -166,7 +200,7 @@ function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selecte
   });
 
   // 3. Draw Bottom Border
-  const bottomBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - 1;
+  const bottomBorderRow = topBorderRow + 1 + menuLength;
   process.stdout.write(`\x1b[${bottomBorderRow};1H\x1b[K`);
   process.stdout.write('  └' + '─'.repeat(boxWidth - 4) + '┘');
 }
@@ -258,23 +292,7 @@ function renderStatusBarOnly(statusBarHeight = 1) {
   }
 
   // Phục hồi con trỏ gõ
-  const segments = getWrappedSegments(inputBuffer, cols);
-  let cursorLineIdx = 0;
-  let cursorCol = 0;
-  const firstLineLimit = cols - 5;
-  if (cursorOffset <= firstLineLimit) {
-    cursorLineIdx = 0;
-    cursorCol = 5 + cursorOffset;
-  } else {
-    let remainingOffset = cursorOffset - firstLineLimit;
-    cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
-    cursorCol = remainingOffset % cols;
-  }
-  if (cursorCol >= cols) {
-    cursorCol = 0;
-    cursorLineIdx += 1;
-  }
-  const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
+  const { cursorLineIdx, cursorCol, promptLinesCount } = calculateCursorPosition(cols);
   const startRow = rows - statusBarHeight - (promptLinesCount - 1);
   const cursorRow = startRow + cursorLineIdx;
   process.stdout.write(`\x1b[${cursorRow};${cursorCol + 1}H`);
@@ -311,38 +329,18 @@ function renderUI() {
   screen.setStatusBarHeight(statusBarHeight);
 
   // Tính toán số dòng của prompt hiện tại và vị trí con trỏ
-  const segments = getWrappedSegments(inputBuffer, cols);
-  
-  let cursorLineIdx = 0;
-  let cursorCol = 0;
-  
-  const firstLineLimit = cols - 5;
-  if (cursorOffset <= firstLineLimit) {
-    cursorLineIdx = 0;
-    cursorCol = 5 + cursorOffset;
-  } else {
-    let remainingOffset = cursorOffset - firstLineLimit;
-    cursorLineIdx = 1 + Math.floor(remainingOffset / cols);
-    cursorCol = remainingOffset % cols;
-  }
-  
-  if (cursorCol >= cols) {
-    cursorCol = 0;
-    cursorLineIdx += 1;
-  }
-  
-  const promptLinesCount = Math.max(segments.length, cursorLineIdx + 1);
+  const { segments, cursorLineIdx, cursorCol, promptLinesCount } = calculateCursorPosition(cols);
   screen.setPromptLinesCount(promptLinesCount);
 
   // 1. Dọn dẹp các dòng menu cũ dựa trên vị trí cũ
   const currentMenuLength = modelSelectionVisible 
-    ? (modelOptions.length + 2)
+    ? Math.min(12, modelOptions.length) + 2
     : (thinkingSelectionVisible
-      ? (thinkingOptions.length + 2)
+      ? Math.min(12, thinkingOptions.length) + 2
       : (autocompleteVisible && autocompleteOptions.length > 0 
-         ? (autocompleteOptions.length + 2)
+         ? Math.min(12, autocompleteOptions.length) + 2
          : (historySelectionVisible 
-            ? (Math.min(10, historyOptions.length) + 2) 
+            ? Math.min(10, historyOptions.length) + 2 
             : 0)));
   
   const prevMenuStart = rows - lastStatusBarHeight - (lastPromptLinesCount - 1) - lastMenuLength;
@@ -383,7 +381,8 @@ function renderUI() {
       modelOptions,
       modelSelectedIdx,
       ' Chọn Mô Hình ',
-      (opt) => opt.display
+      (opt) => opt.display,
+      12
     );
   }
   // Vẽ menu chọn chế độ suy nghĩ (Thinking Selector)
@@ -395,7 +394,8 @@ function renderUI() {
       thinkingOptions,
       thinkingSelectedIdx,
       ' Chế Độ Suy Nghĩ ',
-      (opt) => opt.display
+      (opt) => opt.display,
+      12
     );
   }
   // 5. Vẽ menu gợi ý dropdown tệp tin hoặc câu lệnh
@@ -408,29 +408,21 @@ function renderUI() {
       autocompleteOptions,
       autocompleteSelectedIdx,
       isCommand ? ' Danh Sách Lệnh ' : ' Gợi Ý Tệp Tin ',
-      (opt) => opt.display
+      (opt) => opt.display,
+      12
     );
   }
   // Vẽ menu chọn lịch sử (History Selector)
   else if (historySelectionVisible) {
-    const maxVisibleOptions = 10;
-    let startIdx = 0;
-    if (historyOptions.length > maxVisibleOptions) {
-      startIdx = Math.max(0, historySelectedIdx - Math.floor(maxVisibleOptions / 2));
-      if (startIdx + maxVisibleOptions > historyOptions.length) {
-        startIdx = historyOptions.length - maxVisibleOptions;
-      }
-    }
-    const visibleOptions = historyOptions.slice(startIdx, startIdx + maxVisibleOptions);
-    
     renderBoxedMenu(
       rows,
       promptLinesCount,
       statusBarHeight,
-      visibleOptions,
-      historySelectedIdx - startIdx,
+      historyOptions,
+      historySelectedIdx,
       ' Lịch Sử Cuộc Trò Chuyện ',
-      (opt) => opt.display
+      (opt) => opt.display,
+      10
     );
   }
 
@@ -461,17 +453,17 @@ function checkAutocomplete() {
     try {
       const resolvedDir = path.resolve(process.cwd(), searchDir);
       if (fs.existsSync(resolvedDir) && fs.statSync(resolvedDir).isDirectory()) {
-        const files = fs.readdirSync(resolvedDir);
+        const entries = fs.readdirSync(resolvedDir, { withFileTypes: true });
         
-        autocompleteOptions = files
-          .filter(file => {
-            if (['node_modules', '.git', 'debug', 'references'].includes(file)) return false;
-            return file.toLowerCase().startsWith(searchPrefix.toLowerCase());
+        autocompleteOptions = entries
+          .filter(entry => {
+            if (['node_modules', '.git', 'debug', 'references'].includes(entry.name)) return false;
+            return entry.name.toLowerCase().startsWith(searchPrefix.toLowerCase());
           })
-          .map(file => {
-            const fullPath = path.join(resolvedDir, file);
-            const isDir = fs.statSync(fullPath).isDirectory();
-            const relPath = searchDir === '.' ? file : `${searchDir}/${file}`;
+          .slice(0, 20)
+          .map(entry => {
+            const isDir = entry.isDirectory();
+            const relPath = searchDir === '.' ? entry.name : `${searchDir}/${entry.name}`;
             return {
               display: `${relPath}${isDir ? '/' : ''}`,
               value: `${relPath}${isDir ? '/' : ''}`,
@@ -494,6 +486,7 @@ function checkAutocomplete() {
 
     autocompleteOptions = slashCommands
       .filter(cmd => cmd.value.toLowerCase().startsWith(lastWord.toLowerCase()))
+      .slice(0, 20)
       .map(cmd => ({
         display: cmd.display,
         value: cmd.value,
@@ -539,13 +532,15 @@ function selectAutocompleteOption() {
 
 // Tự động phát hiện và chuyển đổi các đường dẫn tệp tin kéo thả/paste vào terminal sang tiền tố @
 function autoDetectDraggedPaths() {
-  const linuxPathRegex = /(?:^|\s)(['"]?)(\/(?:[^\s'"\\]|\\ )+)\1(?=$|\s)/g;
-  const windowsPathRegex = /(?:^|\s)(['"]?)([a-zA-Z]:\\(?:[^\s'"\\]|\\ )+)\1(?=$|\s)/g;
+  const linuxPathRegex = /(?:^|\s)(?:(['"])(\/[^'"]+)\1|(\/(?:[^\s'"]|\\ )+))(?=$|\s)/g;
+  const windowsPathRegex = /(?:^|\s)(?:(['"])([a-zA-Z]:\\[^'"]+)\1|([a-zA-Z]:\\(?:[^\s'"]|\\ )+))(?=$|\s)/g;
   
   let changed = false;
 
-  const replaceFn = (match, quote, filePath) => {
-    let cleanPath = filePath.replace(/\\ /g, ' ').trim();
+  const replaceFn = (match, quote, quotedPath, unquotedPath) => {
+    const rawPath = quotedPath || unquotedPath;
+    if (!rawPath) return match;
+    let cleanPath = rawPath.replace(/\\ /g, ' ').trim();
     
     const trimmedMatch = match.trim();
     if (trimmedMatch.startsWith('@') || trimmedMatch.startsWith('"@') || trimmedMatch.startsWith("'@")) {
@@ -556,8 +551,6 @@ function autoDetectDraggedPaths() {
       if (fs.existsSync(cleanPath)) {
         changed = true;
         const leadingSpace = match.startsWith(' ') ? ' ' : '';
-        // Luôn luôn tự động thêm khoảng trắng ở cuối tệp đính kèm được kéo thả 
-        // để kết thúc từ, giúp AI nhận biết ngay và không kích hoạt autocomplete dropdown
         return `${leadingSpace}@${cleanPath} `;
       }
     } catch (e) {}
@@ -573,7 +566,6 @@ function autoDetectDraggedPaths() {
     inputBuffer = newBuffer;
     cursorOffset += diff;
     
-    // Tắt và reset trạng thái autocomplete dropdown ngay lập tức khi kéo thả
     autocompleteVisible = false;
     autocompleteOptions = [];
     autocompleteSelectedIdx = 0;
@@ -591,12 +583,23 @@ function formatUserPromptBlock(text, cols) {
   
   let isFirstLine = true;
   for (let line of lines) {
-    let startIdx = 0;
-    while (startIdx < line.length || (startIdx === 0 && line.length === 0)) {
-      const chunkLimit = contentWidth - prefix.length;
-      const chunk = line.slice(startIdx, startIdx + chunkLimit);
-      startIdx += chunkLimit;
-      
+    let currentLine = line;
+    const chunkLimit = contentWidth - prefix.length;
+    
+    while (currentLine.length > 0 || (isFirstLine && line.length === 0)) {
+      let chunk = '';
+      if (currentLine.length <= chunkLimit) {
+        chunk = currentLine;
+        currentLine = '';
+      } else {
+        let splitIdx = currentLine.lastIndexOf(' ', chunkLimit);
+        if (splitIdx <= 0) {
+          splitIdx = chunkLimit;
+        }
+        chunk = currentLine.slice(0, splitIdx);
+        currentLine = currentLine.slice(splitIdx).trimStart();
+      }
+
       const lineText = isFirstLine ? (prefix + chunk) : (' '.repeat(prefix.length) + chunk);
       const paddedLine = lineText.padEnd(contentWidth, ' ');
       resultLines.push(`  \x1b[48;5;235m\x1b[38;5;253m${paddedLine}\x1b[0m`);
@@ -754,9 +757,13 @@ function setupTerminalInput(onSendMessage, onResumeChat) {
           historySelectionVisible = false;
           setIsWaitingResponse(false);
           renderUI();
-        }
-        if (currentOnResumeChat) {
-          currentOnResumeChat(selectedChat.value);
+          if (currentOnResumeChat) {
+            currentOnResumeChat(selectedChat.value);
+          }
+        } else {
+          if (currentOnResumeChat) {
+            currentOnResumeChat('load_more');
+          }
         }
         return;
       }
