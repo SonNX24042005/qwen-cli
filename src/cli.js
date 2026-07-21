@@ -1,202 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-
 const path = require('path');
 const fs = require('fs');
-const { Marked } = require('marked');
-const { markedTerminal } = require('marked-terminal');
-const Renderer = require('marked-terminal').default || require('marked-terminal');
-const supportsHyperlinks = require('supports-hyperlinks');
-const ansiEscapes = require('ansi-escapes');
-
-function wrapAnsiText(text, width) {
-  const lines = text.split('\n');
-  const reflowed = [];
-  const ansiRegex = /\u001b\[[0-9;]*m|\u001b\]8;[^;]*;[^\u0007]*\u0007|\u001b\]8;;\u0007/g;
-  
-  lines.forEach((line) => {
-    const cleanLine = line.replace(ansiRegex, '');
-    if (cleanLine.length <= width) {
-      reflowed.push(line);
-      return;
-    }
-    
-    const tokens = line.split(/([ \t]+)/);
-    let currentLine = '';
-    let currentLength = 0;
-    
-    for (const token of tokens) {
-      if (!token) continue;
-      
-      const cleanToken = token.replace(ansiRegex, '');
-      const cleanLen = cleanToken.length;
-      
-      if (currentLength + cleanLen > width) {
-        if (currentLength === 0) {
-          currentLine += token;
-          currentLength += cleanLen;
-        } else {
-          reflowed.push(currentLine.trimEnd());
-          const trimmedToken = token.trimStart();
-          const trimmedClean = trimmedToken.replace(ansiRegex, '');
-          currentLine = trimmedToken;
-          currentLength = trimmedClean.length;
-        }
-      } else {
-        currentLine += token;
-        currentLength += cleanLen;
-      }
-    }
-    
-    if (currentLine) {
-      reflowed.push(currentLine.trimEnd());
-    }
-  });
-  
-  return reflowed.join('\n');
-}
-
-// Theo dõi độ sâu lồng nhau của list để tính toán thụt lề chính xác khi wrap
-let listDepth = 0;
-const originalList = Renderer.prototype.list;
-Renderer.prototype.list = function(body, ordered) {
-  listDepth++;
-  try {
-    return originalList.call(this, body, ordered);
-  } finally {
-    listDepth--;
-  }
-};
-
-const BULLET_POINT = '* ';
-
-// Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal mà không làm hỏng list lồng nhau
-Renderer.prototype.listitem = function(item) {
-  if (typeof item !== 'object') {
-    return '\n' + BULLET_POINT + item;
-  }
-  
-  let itemText = '';
-  let nestedBlocksHtml = '';
-  
-  if (item.tokens && item.tokens.length > 0) {
-    const firstToken = item.tokens[0];
-    const otherTokens = item.tokens.slice(1);
-    
-    // Parse các token inline của paragraph thay vì parse block để tránh bị Renderer.prototype.paragraph wrap trước
-    if (firstToken.tokens) {
-      itemText = this.parser.parseInline(firstToken.tokens);
-    } else {
-      itemText = firstToken.text || '';
-    }
-    
-    if (otherTokens.length > 0) {
-      nestedBlocksHtml = this.parser.parse(otherTokens);
-    }
-  } else {
-    itemText = item.text || '';
-  }
-  
-  if (item.task) {
-    const checkbox = this.checkbox({ checked: !!item.checked });
-    itemText = checkbox + itemText;
-  }
-  
-  const width = this.o.width || 80;
-  const tabLen = this.tab ? this.tab.length : 4;
-  const prefix = '* ';
-  const prefixLen = prefix.length;
-  
-  // Tính toán chính xác độ rộng giới hạn cuộn dựa trên độ sâu listDepth
-  const depth = Math.max(1, listDepth);
-  const targetWrapWidth = Math.max(30, width - (depth * tabLen) - ((depth - 1) * 2) - prefixLen);
-  const wrappedContent = wrapAnsiText(itemText, targetWrapWidth);
-  
-  const wrappedLines = wrappedContent.split('\n');
-  const indentedContent = wrappedLines.map((wl, idx) => {
-    if (idx === 0) return wl;
-    return ' '.repeat(prefixLen) + wl;
-  }).join('\n');
-  
-  let finalContent = indentedContent;
-  if (nestedBlocksHtml) {
-    finalContent += '\n' + nestedBlocksHtml.trimEnd();
-  }
-  
-  const transform = (txt) => this.o.listitem(this.transform(txt));
-  return '\n' + BULLET_POINT + transform(finalContent);
-};
-
-// Ghi đè Renderer.prototype.link để tránh tự động nối tiếp URL thô trong ngoặc đơn nếu terminal không hỗ trợ hyperlink
-Renderer.prototype.link = function(href, title, text) {
-  if (typeof href === 'object') {
-    title = href.title;
-    text = this.parser.parseInline(href.tokens);
-    href = href.href;
-  }
-  
-  if (supportsHyperlinks.stdout) {
-    const linkText = text ? this.o.href(this.emoji(text)) : this.o.href(href);
-    return this.o.link(ansiEscapes.link(linkText, href.replace(/\+/g, '%20')));
-  } else {
-    // Chỉ hiển thị phần text (ví dụ: tên miền baomoi.com đã được rút gọn) trong terminal
-    return this.o.link(this.o.href(this.emoji(text || href)));
-  }
-};
 
 const driver = require('./driver');
 const fileUtils = require('./utils/file');
 const sseUtils = require('./utils/sse');
+const markdownUtils = require('./utils/markdown');
+const exportImportService = require('./services/exportImport');
 const screen = require('./tui/screen');
 const editor = require('./tui/editor');
-
-const chalkInstance = require('chalk').default || require('chalk');
-
-function renderMarkdown(text, cols) {
-  const extension = markedTerminal({
-    reflowText: true,
-    width: Math.max(40, cols - 4), // Trừ đi lề để hiển thị đẹp hơn
-    showSectionPrefix: false, // Tắt hiển thị ký tự # trước tiêu đề
-    firstHeading: chalkInstance.white.bold.underline,
-    heading: chalkInstance.white.bold,
-    code: chalkInstance.hex('#c9d1d9'),
-    codespan: chalkInstance.cyan,
-    link: chalkInstance.hex('#58a6ff'),
-    href: chalkInstance.hex('#58a6ff').underline,
-    blockquote: chalkInstance.gray.italic,
-    tableOptions: {
-      chars: {
-        'top': '─', 'top-mid': '┬', 'top-left': '┌', 'top-right': '┐',
-        'bottom': '─', 'bottom-mid': '┴', 'bottom-left': '└', 'bottom-right': '┘',
-        'left': '│', 'left-mid': '├',
-        'mid': '─', 'mid-mid': '┼',
-        'right': '│', 'right-mid': '┤',
-        'middle': '│'
-      },
-      style: {
-        head: ['white', 'bold'],
-        border: ['gray']
-      }
-    }
-  });
-
-  // Sửa lỗi marked v15 không bôi đậm được văn bản nằm trong thẻ text
-  const originalText = extension.renderer.text;
-  extension.renderer.text = function(token) {
-    if (token && typeof token === 'object' && token.tokens) {
-      return this.parser.parseInline(token.tokens);
-    }
-    return originalText.call(this, token);
-  };
-
-  const markedInstance = new Marked(extension);
-  try {
-    return markedInstance.parse(text).trimEnd();
-  } catch (err) {
-    return text;
-  }
-}
 
 let sseState = {
   currentResponseText: '',
@@ -209,99 +23,6 @@ let sseState = {
 
 let currentHistoryPage = 1;
 let currentHistoryItems = [];
-
-// Thay thế các ký hiệu [[N]] và [N] thành liên kết Markdown
-function replaceCitations(text, docs) {
-  if (!text) return text;
-
-  // 1. Phân tích danh sách tài liệu tham khảo ở cuối văn bản (nếu có)
-  // Định dạng thường gặp ở cuối: [21] Author... http://url hoặc [21] http://url
-  const bibMap = {};
-  const bibLineRegex = /^\s*\[(\d+)\]\s+(.+)$/gm;
-  let match;
-  bibLineRegex.lastIndex = 0;
-  while ((match = bibLineRegex.exec(text)) !== null) {
-    const num = parseInt(match[1], 10);
-    const content = match[2];
-    const urlMatch = content.match(/(https?:\/\/[^\s\)\],"`]+)/);
-    if (urlMatch) {
-      let url = urlMatch[1];
-      if (url.endsWith('.') || url.endsWith(',')) {
-        url = url.slice(0, -1);
-      }
-      let domain = '';
-      try {
-        domain = new URL(url).hostname;
-      } catch (e) {
-        const m = url.match(/https?:\/\/([^\/]+)/);
-        domain = m ? m[1] : 'link';
-      }
-      if (domain.startsWith('www.')) domain = domain.slice(4);
-      bibMap[num] = { url, domain };
-    }
-  }
-
-  const getDomain = (url) => {
-    let domain = '';
-    try {
-      domain = new URL(url).hostname;
-    } catch (e) {
-      const m = url.match(/https?:\/\/([^\/]+)/);
-      domain = m ? m[1] : 'link';
-    }
-    if (domain.startsWith('www.')) domain = domain.slice(4);
-    return domain;
-  };
-
-  // 2. Thay thế các ký hiệu [[N]] (ngoặc kép)
-  text = text.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
-    const num = parseInt(numStr, 10);
-    if (bibMap[num]) {
-      return `[[${numStr}]](${bibMap[num].url})`;
-    }
-    const idx = num - 1;
-    if (docs && Array.isArray(docs) && docs[idx]) {
-      const doc = docs[idx];
-      return `[[${numStr}]](${doc.url})`;
-    }
-    return `[${numStr}]`;
-  });
-
-  // 3. Thay thế các ký hiệu [N] (ngoặc đơn)
-  // Sử dụng lookbehind và lookahead nâng cao để tránh khớp nhầm code hoặc link Markdown có sẵn hoặc các dấu ngoặc kép vừa replace
-  text = text.replace(/(?<!\w|\[)\[(\d+)\](?!\(|\[)/g, (match, numStr) => {
-    const num = parseInt(numStr, 10);
-    if (bibMap[num]) {
-      return `[[${numStr}]](${bibMap[num].url})`;
-    }
-    const idx = num - 1;
-    if (docs && Array.isArray(docs) && docs[idx]) {
-      const doc = docs[idx];
-      return `[[${numStr}]](${doc.url})`;
-    }
-    return match;
-  });
-
-  // 4. Thay thế các link URL thô còn lại thành link rút gọn chỉ hiển thị tên miền
-  text = text.replace(/(?<!\(|\[)https?:\/\/[^\s\)\],"`]+/g, (url) => {
-    let cleanUrl = url;
-    if (cleanUrl.endsWith('.') || cleanUrl.endsWith(',')) {
-      cleanUrl = cleanUrl.slice(0, -1);
-    }
-    let domain = '';
-    try {
-      domain = new URL(cleanUrl).hostname;
-    } catch (e) {
-      const m = cleanUrl.match(/https?:\/\/([^\/]+)/);
-      domain = m ? m[1] : 'link';
-    }
-    if (domain.startsWith('www.')) domain = domain.slice(4);
-    return `[${domain}](${cleanUrl})`;
-  });
-
-  return text;
-}
-
 let chatHistory = [];
 
 function rebuildScrollBuffer() {
@@ -313,8 +34,8 @@ function rebuildScrollBuffer() {
       const userBlock = editor.formatUserPromptBlock(msg.content, cols);
       formattedHistory += '\n' + userBlock + '\n';
     } else if (msg.role === 'assistant') {
-      const parsedCitations = replaceCitations(msg.content, msg.docs);
-      const renderedMarkdown = renderMarkdown(parsedCitations, cols);
+      const parsedCitations = markdownUtils.replaceCitations(msg.content, msg.docs);
+      const renderedMarkdown = markdownUtils.renderMarkdown(parsedCitations, cols);
       formattedHistory += `\n\x1b[1m\x1b[38;5;147m🤖 Qwen:\x1b[0m\n${renderedMarkdown}\n`;
     }
   });
@@ -337,246 +58,78 @@ function waitForResponse() {
 async function triggerAutoExport() {
   const chatId = driver.getCurrentChatId();
   if (!chatId) return;
-  await exportCurrentChat(chatId);
+  await exportImportService.exportCurrentChat(chatId);
 }
 
-async function exportCurrentChat(chatId) {
-  const chatData = await driver.getChatDetails(chatId);
-  if (!chatData) {
-    throw new Error(`Không thể tải chi tiết cuộc trò chuyện có ID: ${chatId}`);
-  }
-
-  let title = chatData.title || '';
-  if (!title || title.trim().toLowerCase() === 'new chat') {
-    const msgMap = chatData.chat?.messages || {};
-    const userMsgs = Object.values(msgMap).filter(m => m.role === 'user');
-    if (userMsgs.length > 0) {
-      const sortedUserMsgs = userMsgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      title = sortedUserMsgs[0].content || '';
-    }
-  }
-
-  function getSafeFilename(text, defaultName) {
-    if (!text || text.trim() === '') return defaultName;
-    return text
-      .trim()
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/\s+/g, '_')
-      .substring(0, 50);
-  }
-
-  const safeTitle = getSafeFilename(title, `chat_${chatId}`);
-  const outputDir = path.resolve(process.cwd(), 'output-qwen');
-
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-
-  const jsonPath = path.join(outputDir, `${safeTitle}.json`);
-  fs.writeFileSync(jsonPath, JSON.stringify([chatData], null, 2), 'utf8');
-
-  const mdPath = path.join(outputDir, `${safeTitle}.md`);
-  const mdContent = convertChatToMarkdown(chatData);
-  fs.writeFileSync(mdPath, mdContent, 'utf8');
-}
-
-function convertChatToMarkdown(chatData) {
-  let md = '';
-  const title = chatData.title || 'Untitled Chat';
-  md += `# ${title}\n\n`;
-  md += `- **ID**: \`${chatData.id}\`\n`;
+function runAppUpdate() {
+  screen.shutdownTUI();
+  console.log('===========================================');
+  console.log('       CẬP NHẬT QWEN CHAT CLI TOÀN CỤC     ');
+  console.log('===========================================');
+  console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
+  const { spawnSync } = require('child_process');
+  const isWindows = process.platform === 'win32';
+  const timestamp = Date.now();
   
-  const modelName = chatData.models ? chatData.models.join(', ') : 'unknown';
-  md += `- **Model**: \`${modelName}\`\n`;
-  
-  if (chatData.created_at) {
-    const date = new Date(chatData.created_at * 1000);
-    md += `- **Created At**: \`${date.toLocaleString('vi-VN')}\`\n`;
+  if (isWindows) {
+    spawnSync('powershell', ['-Command', `iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1?v=${timestamp}' | iex`], { stdio: 'inherit' });
+  } else {
+    spawnSync('bash', ['-c', `curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=${timestamp}" | bash`], { stdio: 'inherit' });
   }
-  md += `\n---\n\n`;
-
-  const msgMap = chatData.chat && chatData.chat.messages ? chatData.chat.messages : {};
-  const messages = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-  messages.forEach((msg) => {
-    if (msg.role === 'user') {
-      md += `### 👤 User\n\n${msg.content || ''}\n\n---\n\n`;
-    } else if (msg.role === 'assistant') {
-      md += `### 🤖 Assistant\n\n`;
-
-      if (msg.content_list && msg.content_list.length > 0) {
-        const thinkingItems = msg.content_list.filter(item => item.phase === 'thinking_summary');
-        if (thinkingItems.length > 0) {
-          md += `<details>\n<summary>🧠 Thinking Process</summary>\n\n`;
-          thinkingItems.forEach((tItem) => {
-            const titles = tItem.extra && tItem.extra.summary_title ? tItem.extra.summary_title.content : [];
-            const thoughts = tItem.extra && tItem.extra.summary_thought ? tItem.extra.summary_thought.content : [];
-            for (let i = 0; i < titles.length; i++) {
-              md += `- **${titles[i]}**`;
-              if (thoughts[i]) {
-                md += `: ${thoughts[i].trim()}`;
-              }
-              md += `\n`;
-            }
-          });
-          md += `\n</details>\n\n`;
-        }
-
-        let searchDocs = [];
-        msg.content_list.forEach((item) => {
-          if (item.phase === 'web_search' && item.extra) {
-            const docs = item.extra.web_search_info || (item.extra.tool_result && item.extra.tool_result.docs);
-            if (docs && Array.isArray(docs)) {
-              searchDocs = searchDocs.concat(docs);
-            }
-          }
-        });
-
-        if (searchDocs.length > 0) {
-          md += `<details>\n<summary>🔍 Web Search References</summary>\n\n`;
-          searchDocs.forEach((doc) => {
-            if (doc.title && doc.url) {
-              md += `- [${doc.title}](${doc.url})\n`;
-            } else if (doc.url) {
-              md += `- [${doc.url}](${doc.url})\n`;
-            }
-          });
-          md += `\n</details>\n\n`;
-        }
-      }
-
-      let assistantContent = msg.content || '';
-      if (msg.content_list && msg.content_list.length > 0) {
-        const answerItem = msg.content_list.find(item => item.phase === 'answer');
-        if (answerItem) {
-          assistantContent = answerItem.content || '';
-        } else {
-          const lastItem = msg.content_list[msg.content_list.length - 1];
-          assistantContent = lastItem.content || '';
-        }
-      }
-
-      md += `${assistantContent}\n\n---\n\n`;
-    }
-  });
-
-  return md.trim() + '\n';
+  process.exit(0);
 }
 
-function parseMarkdownToMessages(mdContent) {
-  const lines = mdContent.split(/\r?\n/);
-  const messages = [];
-  let currentRole = null;
-  let currentContentLines = [];
+function copyLastAssistantMessage() {
+  const lastAssistantMsg = [...chatHistory].reverse().find(m => m.role === 'assistant');
+  if (!lastAssistantMsg || !lastAssistantMsg.content) {
+    screen.consoleLog('[Hệ thống] Không có câu trả lời nào từ Assistant để sao chép.');
+    return;
+  }
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    if (line.startsWith('### 👤 User')) {
-      if (currentRole && currentContentLines.length > 0) {
-        messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
-      }
-      currentRole = 'user';
-      currentContentLines = [];
-    } else if (line.startsWith('### 🤖 Assistant')) {
-      if (currentRole && currentContentLines.length > 0) {
-        messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
-      }
-      currentRole = 'assistant';
-      currentContentLines = [];
+  const textToCopy = lastAssistantMsg.content;
+
+  // 1. In chuỗi mã hóa OSC 52 tới Terminal cho các terminal hỗ trợ
+  const base64Text = Buffer.from(textToCopy).toString('base64');
+  process.stdout.write(`\x1b]52;c;${base64Text}\x07`);
+
+  // 2. Thử sao chép qua công cụ hệ thống nếu có
+  const { exec } = require('child_process');
+  const isWindows = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+
+  try {
+    if (isWindows) {
+      const proc = exec('clip');
+      proc.stdin.write(textToCopy);
+      proc.stdin.end();
+    } else if (isMac) {
+      const proc = exec('pbcopy');
+      proc.stdin.write(textToCopy);
+      proc.stdin.end();
     } else {
-      if (currentRole) {
-        currentContentLines.push(line);
-      }
+      exec('which xclip', (err) => {
+        if (!err) {
+          const proc = exec('xclip -selection clipboard');
+          proc.stdin.write(textToCopy);
+          proc.stdin.end();
+        } else {
+          exec('which xsel', (err2) => {
+            if (!err2) {
+              const proc = exec('xsel --clipboard --input');
+              proc.stdin.write(textToCopy);
+              proc.stdin.end();
+            }
+          });
+        }
+      });
     }
-  }
+  } catch (e) {}
 
-  if (currentRole && currentContentLines.length > 0) {
-    messages.push({ role: currentRole, content: currentContentLines.join('\n').trim() });
-  }
-
-  messages.forEach(msg => {
-    msg.content = msg.content.replace(/\n---\s*$/, '').trim();
-    if (msg.role === 'assistant') {
-      msg.content = msg.content
-        .replace(/<details>[\s\S]*?<\/details>/gi, '')
-        .trim();
-    }
-  });
-
-  return messages;
+  screen.consoleLog('[Hệ thống] Đã sao chép phản hồi mới nhất của AI vào Clipboard!');
 }
 
 async function handleImportChat(filePath) {
-  let resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(process.cwd(), filePath);
-  
-  if (!fs.existsSync(resolvedPath)) {
-    throw new Error(`Đường dẫn tệp không tồn tại: ${resolvedPath}`);
-  }
-
-  let importedData = null;
-  let parsedMessages = [];
-  const ext = path.extname(resolvedPath).toLowerCase();
-  
-  if (ext === '.json') {
-    const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-    const rawData = JSON.parse(fileContent);
-    importedData = Array.isArray(rawData) ? rawData[0] : rawData;
-  } else if (ext === '.md') {
-    const jsonPath = resolvedPath.slice(0, -ext.length) + '.json';
-    if (fs.existsSync(jsonPath)) {
-      screen.consoleLog(`[Hệ thống] Tìm thấy file JSON đi kèm: ${path.basename(jsonPath)}. Sẽ sử dụng để nhập đầy đủ dữ liệu.`);
-      const fileContent = fs.readFileSync(jsonPath, 'utf8');
-      const rawData = JSON.parse(fileContent);
-      importedData = Array.isArray(rawData) ? rawData[0] : rawData;
-    } else {
-      screen.consoleLog(`[Hệ thống] Không thấy file JSON đi kèm. Tiến hành parse file Markdown...`);
-      parsedMessages = parseMarkdownToMessages(fs.readFileSync(resolvedPath, 'utf8'));
-    }
-  } else {
-    throw new Error('Chỉ hỗ trợ nhập từ tệp .json hoặc .md.');
-  }
-
-  if (importedData) {
-    const msgMap = importedData.chat && importedData.chat.messages ? importedData.chat.messages : {};
-    const sortedMsgs = Object.values(msgMap).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-    
-    sortedMsgs.forEach(msg => {
-      if (msg.role === 'user') {
-        parsedMessages.push({ role: 'user', content: msg.content || '' });
-      } else if (msg.role === 'assistant') {
-        let assistantContent = msg.content || '';
-        if (msg.content_list && msg.content_list.length > 0) {
-          const answerItem = msg.content_list.find(item => item.phase === 'answer');
-          if (answerItem) {
-            assistantContent = answerItem.content || '';
-          } else {
-            const lastItem = msg.content_list[msg.content_list.length - 1];
-            assistantContent = lastItem.content || '';
-          }
-        }
-        
-        let lastDocs = null;
-        if (msg.content_list && Array.isArray(msg.content_list)) {
-          for (let i = msg.content_list.length - 1; i >= 0; i--) {
-            const item = msg.content_list[i];
-            if (item.phase === 'web_search' && item.extra) {
-              const docs = item.extra.web_search_info || (item.extra.tool_result && item.extra.tool_result.docs);
-              if (docs && Array.isArray(docs) && docs.length > 0) {
-                lastDocs = docs;
-                break;
-              }
-            }
-          }
-        }
-        parsedMessages.push({ role: 'assistant', content: assistantContent, docs: lastDocs });
-      }
-    });
-  }
-
-  if (parsedMessages.length === 0) {
-    throw new Error('Không tìm thấy cuộc hội thoại hợp lệ nào để nhập.');
-  }
+  const parsedMessages = await exportImportService.loadImportedChatData(filePath, (msg) => screen.consoleLog(msg));
 
   chatHistory = parsedMessages;
   rebuildScrollBuffer();
@@ -604,6 +157,25 @@ async function handleUserMessage(inputText) {
     return;
   }
 
+  // Xử lý lệnh sao chép phản hồi mới nhất
+  if (trimmedInput === '/copy' || trimmedInput === '/c') {
+    copyLastAssistantMessage();
+    editor.setIsWaitingResponse(false);
+    editor.renderUI();
+    return;
+  }
+
+  // Xử lý lệnh xóa màn hình TUI
+  if (trimmedInput === '/clear') {
+    screen.setScrollContentBuffer('');
+    screen.setScrollOffset(0);
+    screen.refreshScrollRegion();
+    screen.consoleLog('[Hệ thống] Đã xóa toàn bộ màn hình hiển thị TUI (Lịch sử hội thoại vẫn được lưu giữ).');
+    editor.setIsWaitingResponse(false);
+    editor.renderUI();
+    return;
+  }
+
   // Xử lý lệnh bật/tắt tự động xuất cuộc trò chuyện
   if (trimmedInput === '/export' || trimmedInput === '/ep') {
     const isNowEnabled = driver.toggleExportMode();
@@ -612,7 +184,7 @@ async function handleUserMessage(inputText) {
       const chatId = driver.getCurrentChatId();
       if (chatId) {
         screen.consoleLog(`[Hệ thống] Phát hiện cuộc hội thoại đang mở, đang tiến hành xuất lịch sử hiện tại...`);
-        exportCurrentChat(chatId).then(() => {
+        exportImportService.exportCurrentChat(chatId).then(() => {
           screen.consoleLog(`[Hệ thống] Xuất lịch sử hiện tại thành công!`);
         }).catch((err) => {
           screen.consoleError(`\n[Lỗi xuất cuộc trò chuyện]: ${err.message}`);
@@ -652,21 +224,8 @@ async function handleUserMessage(inputText) {
 
   // Xử lý lệnh tự động cập nhật phần mềm từ trong phiên chat
   if (trimmedInput === '/update' || trimmedInput === '/up') {
-    screen.shutdownTUI();
-    console.log('===========================================');
-    console.log('       CẬP NHẬT QWEN CHAT CLI TOÀN CỤC     ');
-    console.log('===========================================');
-    console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
-    const { spawnSync } = require('child_process');
-    const isWindows = process.platform === 'win32';
-    const timestamp = Date.now();
-    
-    if (isWindows) {
-      spawnSync('powershell', ['-Command', `iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1?v=${timestamp}' | iex`], { stdio: 'inherit' });
-    } else {
-      spawnSync('bash', ['-c', `curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=${timestamp}" | bash`], { stdio: 'inherit' });
-    }
-    process.exit(0);
+    runAppUpdate();
+    return;
   }
 
   // Xử lý lệnh thay đổi chế độ suy nghĩ có hoặc không có tham số
@@ -835,7 +394,7 @@ async function handleUserMessage(inputText) {
 
         const safeNames = folderFiles.map(f => {
           const relF = path.relative(process.cwd(), f);
-          return relF.replace(new RegExp('\\' + path.sep, 'g'), '--').replace(/[^a-zA-Z0-9_.-]/g, '_');
+          return relF.split(path.sep).join('--').replace(/[^a-zA-Z0-9_.-]/g, '_');
         });
         
         const replacement = `@${pathItem} (thư mục chứa các tệp đã tải lên: ${safeNames.join(', ')})`;
@@ -844,7 +403,8 @@ async function handleUserMessage(inputText) {
         allFilesToUpload.push(resolvedPath);
 
         const safeRelativeName = relativePath
-          .replace(new RegExp('\\' + path.sep, 'g'), '--')
+          .split(path.sep)
+          .join('--')
           .replace(/[^a-zA-Z0-9_.-]/g, '_');
 
         const replacement = `@${pathItem} (được tải lên với tên: ${safeRelativeName})`;
@@ -956,20 +516,8 @@ async function handleUserMessage(inputText) {
 async function main() {
   // Kiểm tra đối số cập nhật phần mềm tự động
   if (process.argv.includes('--update') || process.argv.includes('-u') || process.argv.includes('update')) {
-    console.log('===========================================');
-    console.log('       CẬP NHẬT QWEN CHAT CLI TOÀN CỤC     ');
-    console.log('===========================================');
-    console.log('Đang tải và thực thi kịch bản cập nhật mới nhất từ GitHub...');
-    const { spawnSync } = require('child_process');
-    const isWindows = process.platform === 'win32';
-    const timestamp = Date.now();
-    
-    if (isWindows) {
-      spawnSync('powershell', ['-Command', `iwr -useb 'https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.ps1?v=${timestamp}' | iex`], { stdio: 'inherit' });
-    } else {
-      spawnSync('bash', ['-c', `curl -fsSL "https://raw.githubusercontent.com/SonNX24042005/qwen-cli/main/install.sh?v=${timestamp}" | bash`], { stdio: 'inherit' });
-    }
-    process.exit(0);
+    runAppUpdate();
+    return;
   }
 
   // 0. Phân tích đối số dòng lệnh để thiết lập chế độ suy nghĩ ban đầu
@@ -1003,6 +551,8 @@ async function main() {
 
   screen.consoleLog('=== QWEN CHAT CLI ===');
   screen.consoleLog('Nhập "/exit" hoặc nhấn Ctrl+C để thoát chương trình.');
+  screen.consoleLog('Nhập "/copy" hoặc "/c" để sao chép phản hồi mới nhất của AI vào Clipboard.');
+  screen.consoleLog('Nhập "/clear" để xóa sạch màn hình hiển thị TUI.');
   screen.consoleLog('Nhập "/websearch" hoặc "/ws" để bật/tắt Tìm kiếm Web (Mặc định: TẮT).');
   screen.consoleLog('Nhập "/export" hoặc "/ep" để bật/tắt Tự động xuất chat sang Markdown/JSON (Mặc định: TẮT).');
   screen.consoleLog('Nhập "/import <path>" hoặc "/ip <path>" để khôi phục lịch sử trò chuyện.');
@@ -1011,12 +561,13 @@ async function main() {
   screen.consoleLog('Kéo thả file: Bạn có thể kéo thả trực tiếp file/folder từ File Explorer vào đây để đính kèm!\n');
 
   const onChunk = (chunkText) => {
-    streamBuffer += chunkText;
+    // Chuẩn hóa ngắt dòng CRLF (\r\n) thành LF (\n) để xử lý stream đồng nhất
+    streamBuffer += chunkText.replace(/\r\n/g, '\n');
     
     let boundaryIdx;
     while ((boundaryIdx = streamBuffer.indexOf('\n\ndata:')) !== -1) {
       const eventText = streamBuffer.slice(0, boundaryIdx).trim();
-      streamBuffer = streamBuffer.slice(boundaryIdx + 2); // slice past the newlines, keep 'data:'
+      streamBuffer = streamBuffer.slice(boundaryIdx + 2); // slice past newlines, keep 'data:'
       
       if (eventText) {
         sseState = sseUtils.parseSSEChunk(eventText, sseState, (t) => {
@@ -1202,6 +753,12 @@ async function main() {
     await screen.shutdownTUI();
   }
 }
+
+// Lưới bảo vệ cuối cùng: các callback bất đồng bộ rời rạc
+process.on('unhandledRejection', async (err) => {
+  screen.consoleError(`\n[Lỗi không mong muốn]: ${err && err.message ? err.message : err}`);
+  await screen.shutdownTUI();
+});
 
 main().catch(async (err) => {
   console.error('Fatal error:', err);

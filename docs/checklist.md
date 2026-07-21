@@ -22,9 +22,9 @@ Cơ chế cốt lõi giúp CLI chạy ẩn danh ổn định và vượt qua tư
   - [x] Phát hiện lỗi bị chặn `RGV587` / Slider Captcha từ Alibaba WAF.
   - [x] Tự động mở trình duyệt thật tại vị trí bị chặn để người dùng kéo thanh trượt xác thực.
   - [x] Tự đóng trình duyệt khi giải xong, chuyển về chạy ngầm và **gửi lại câu hỏi bị lỗi trước đó** một cách tự động.
-- [x] **Tối ưu hóa Tài nguyên CLI**
+- [/] **Tối ưu hóa Tài nguyên CLI**
   - [x] Chạy Chromium ở chế độ ẩn ngầm (`headless: true`) để tiết kiệm RAM.
-  - [x] Chặn tải các tài nguyên nặng (image, font, video) qua Playwright routing (`BLOCK_ASSETS`).
+  - [ ] Chặn tải các tài nguyên nặng (image, font, video) qua Playwright routing (`BLOCK_ASSETS`) — *Chủ động không triển khai*: đây thuộc nhóm "mẹo nâng cao" từ `qwen2api` bị cấm tham khảo theo `.agents/rules/src.md`, do rủi ro làm lộ pattern bất thường trước WAF/Captcha của Alibaba.
 
 ---
 
@@ -54,8 +54,9 @@ Các tính năng điều khiển và định dạng nhập liệu.
   - [x] Parse stream SSE và in trực tiếp ra console theo thời gian thực (real-time stream).
   - [x] Thuật toán so khớp chuỗi thông minh tự xử lý cả 2 định dạng Cumulative (tích lũy) và Incremental (tăng dần) mà không bị lặp chữ.
   - [x] Hiển thị quá trình suy nghĩ (Thinking process) dưới dạng kí hiệu dấu chấm loading `.` trước khi in câu trả lời chính thức.
-- [ ] **Tương tác với câu trả lời (Message Actions)**
-  - [ ] Sao chép câu trả lời (Copy Response).
+- [x] **Tương tác với câu trả lời (Message Actions)**
+  - [x] Sao chép câu trả lời (Copy Response) qua lệnh `/copy` hoặc `/c`.
+  - [x] Xóa sạch màn hình hiển thị TUI qua lệnh `/clear`.
   - [ ] Like / Dislike câu trả lời để đánh giá phản hồi.
   - [ ] Chia sẻ hội thoại (Share).
   - [ ] Tạo lại câu trả lời mới (Regenerate).

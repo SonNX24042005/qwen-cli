@@ -11,10 +11,13 @@ function extractAttachedFiles(inputText) {
   
   while ((match = fileRegex.exec(inputText)) !== null) {
     let cleanPath = match[1];
+    cleanPath = cleanPath.replace(/[,.:;!?]+$/, '');
     if (cleanPath.endsWith('/')) {
       cleanPath = cleanPath.slice(0, -1);
     }
-    matches.push(cleanPath);
+    if (cleanPath) {
+      matches.push(cleanPath);
+    }
   }
   
   return [...new Set(matches)];

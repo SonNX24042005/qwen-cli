@@ -52,6 +52,21 @@ function saveAutoExportSessions() {
 loadAutoExportSessions();
 
 
+async function syncPageState(targetPage, importedHistory = null) {
+  if (!targetPage) return;
+  await targetPage.evaluate(({ status, mName, tMode, hist }) => {
+    window.__qwenWebSearchEnabled = status;
+    window.__qwenModelName = mName;
+    window.__qwenThinkingMode = tMode;
+    window.__qwenImportedHistory = hist;
+  }, {
+    status: isWebSearchEnabled,
+    mName: currentModelName,
+    tMode: currentThinkingMode,
+    hist: importedHistory
+  }).catch(() => {});
+}
+
 // Khởi chạy chế độ giải Captcha tương tác (Headful)
 async function runInteractiveCaptchaSolver(failedPromptText) {
   console.log('\n[Hệ thống] Phát hiện Captcha bảo mật (RGV587) từ Alibaba WAF.');
@@ -73,18 +88,7 @@ async function runInteractiveCaptchaSolver(failedPromptText) {
   await captchaCtx.addInitScript(INIT_SCRIPT(token));
 
   const captchaPage = await captchaCtx.newPage();
-  
-  await captchaPage.evaluate((status) => {
-    window.__qwenWebSearchEnabled = status;
-  }, isWebSearchEnabled);
-
-  await captchaPage.evaluate((mName) => {
-    window.__qwenModelName = mName;
-  }, currentModelName);
-
-  await captchaPage.evaluate((tMode) => {
-    window.__qwenThinkingMode = tMode;
-  }, currentThinkingMode);
+  await syncPageState(captchaPage);
 
   await captchaPage.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await captchaPage.waitForSelector(INPUT_SELECTOR, { timeout: 15000 }).catch(() => {});
@@ -124,7 +128,7 @@ async function setWebSearch(enabled) {
   if (page) {
     await page.evaluate((status) => {
       window.__qwenWebSearchEnabled = status;
-    }, isWebSearchEnabled);
+    }, isWebSearchEnabled).catch(() => {});
   }
 }
 
@@ -158,7 +162,8 @@ async function uploadFile(filePath) {
   // - 'sub/folder/ten_file.md'   -> 'sub--folder--ten_file.md'
   // - 'sub_folder/ten_file.md'   -> 'sub_folder--ten_file.md'
   const safeRelativeName = relativePath
-    .replace(new RegExp('\\' + path.sep, 'g'), '--')
+    .split(path.sep)
+    .join('--')
     .replace(/[^a-zA-Z0-9_.-]/g, '_'); // Thay các ký tự không an toàn khác bằng '_'
 
   const debugDir = path.resolve(process.cwd(), 'debug');
@@ -296,21 +301,7 @@ async function initBrowser(onChunk, onDone, onError) {
   console.log('[Driver] Chờ tải ô nhập liệu...');
   await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
   
-  await page.evaluate((status) => {
-    window.__qwenWebSearchEnabled = status;
-  }, isWebSearchEnabled);
-
-  await page.evaluate((mName) => {
-    window.__qwenModelName = mName;
-  }, currentModelName);
-
-  await page.evaluate((tMode) => {
-    window.__qwenThinkingMode = tMode;
-  }, currentThinkingMode);
-
-  await page.evaluate(() => {
-    window.__qwenImportedHistory = null;
-  });
+  await syncPageState(page);
 
   await page.waitForTimeout(2000);
   
@@ -346,7 +337,7 @@ async function setModelName(modelName) {
   if (page) {
     await page.evaluate((mName) => {
       window.__qwenModelName = mName;
-    }, currentModelName);
+    }, currentModelName).catch(() => {});
   }
 }
 
@@ -368,7 +359,7 @@ async function setThinkingMode(tMode) {
   if (page) {
     await page.evaluate((mode) => {
       window.__qwenThinkingMode = mode;
-    }, currentThinkingMode);
+    }, currentThinkingMode).catch(() => {});
   }
 }
 function getThinkingMode() {
@@ -437,21 +428,7 @@ async function newChat() {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
   
-  await page.evaluate((status) => {
-    window.__qwenWebSearchEnabled = status;
-  }, isWebSearchEnabled);
-
-  await page.evaluate((mName) => {
-    window.__qwenModelName = mName;
-  }, currentModelName);
-
-  await page.evaluate((tMode) => {
-    window.__qwenThinkingMode = tMode;
-  }, currentThinkingMode);
-
-  await page.evaluate(() => {
-    window.__qwenImportedHistory = null;
-  });
+  await syncPageState(page);
 
   await page.waitForTimeout(2000);
 }
@@ -470,21 +447,7 @@ async function importChatHistory(history) {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector(INPUT_SELECTOR, { timeout: 20000 });
   
-  await page.evaluate((status) => {
-    window.__qwenWebSearchEnabled = status;
-  }, isWebSearchEnabled);
-
-  await page.evaluate((mName) => {
-    window.__qwenModelName = mName;
-  }, currentModelName);
-
-  await page.evaluate((tMode) => {
-    window.__qwenThinkingMode = tMode;
-  }, currentThinkingMode);
-
-  await page.evaluate((hist) => {
-    window.__qwenImportedHistory = hist;
-  }, history);
+  await syncPageState(page, history);
 
   await page.waitForTimeout(2000);
 }
