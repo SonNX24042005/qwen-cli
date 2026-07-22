@@ -627,6 +627,8 @@ function setupTerminalInput(onSendMessage, onResumeChat, onCancelPrompt) {
   }
 
   process.stdin.on('keypress', async (str, key) => {
+    if (!key) key = {};
+
     // 1. Phím tắt ctrl+c để thoát
     if (key && key.ctrl && key.name === 'c') {
       screen.consoleLog('\nĐang thoát chương trình...');
@@ -860,7 +862,13 @@ function setupTerminalInput(onSendMessage, onResumeChat, onCancelPrompt) {
       const formattedUserPrompt = formatUserPromptBlock(finalInput, cols);
       screen.printInScrollRegion('\n' + formattedUserPrompt + '\n');
       
-      await onSendMessage(finalInput);
+      try {
+        await onSendMessage(finalInput);
+      } catch (err) {
+        screen.consoleError(`\n[Lỗi gửi tin nhắn]: ${err && err.message ? err.message : err}`);
+        setIsWaitingResponse(false);
+        renderUI();
+      }
       return;
     }
 
