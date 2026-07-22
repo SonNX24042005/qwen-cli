@@ -24,8 +24,18 @@ Write-Host "Phát hiện Node.js: $nodeVer" -ForegroundColor Green
 $installDir = "$env:USERPROFILE\.qwen-cli"
 Write-Host "Thư mục cài đặt: $installDir" -ForegroundColor Yellow
 
+$dataDir = "$env:USERPROFILE\.qwen-cli-data"
+
 if (Test-Path $installDir) {
-    Write-Host "Đang dọn dẹp thư mục cũ..."
+    Write-Host "Đang tự động sao lưu dữ liệu người dùng và dọn dẹp phiên bản cũ..."
+    if (!(Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+    foreach ($file in @("credentials.json", "storage_state.json", ".env")) {
+        $oldFile = Join-Path $installDir $file
+        $newFile = Join-Path $dataDir $file
+        if ((Test-Path $oldFile) -and !(Test-Path $newFile)) {
+            Copy-Item $oldFile $newFile -Force -ErrorAction SilentlyContinue
+        }
+    }
     Remove-Item -Recurse -Force $installDir
 }
 

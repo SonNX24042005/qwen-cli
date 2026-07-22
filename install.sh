@@ -32,8 +32,16 @@ echo -e "Phát hiện Node.js: ${GREEN}${NODE_VERSION}${NC}"
 INSTALL_DIR="$HOME/.qwen-cli"
 echo -e "Thư mục cài đặt: ${YELLOW}${INSTALL_DIR}${NC}"
 
+DATA_DIR="$HOME/.qwen-cli-data"
+
 if [ -d "$INSTALL_DIR" ]; then
-    echo -e "Đang dọn dẹp thư mục cũ..."
+    echo -e "Đang tự động sao lưu dữ liệu người dùng và dọn dẹp phiên bản cũ..."
+    mkdir -p "$DATA_DIR"
+    for file in credentials.json storage_state.json .env; do
+        if [ -f "$INSTALL_DIR/$file" ] && [ ! -f "$DATA_DIR/$file" ]; then
+            cp "$INSTALL_DIR/$file" "$DATA_DIR/$file" 2>/dev/null || true
+        fi
+    done
     rm -rf "$INSTALL_DIR"
 fi
 

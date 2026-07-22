@@ -7,7 +7,28 @@ const { launchBrowser } = require('./launcher');
 
 const BASE_URL = 'https://chat.qwen.ai';
 
-const CONFIG_DIR = path.join(os.homedir(), '.qwen-cli');
+const CONFIG_DIR = path.join(os.homedir(), '.qwen-cli-data');
+const OLD_CONFIG_DIR = path.join(os.homedir(), '.qwen-cli');
+
+// Tự động di chuyển dữ liệu cấu hình cũ từ ~/.qwen-cli sang ~/.qwen-cli-data nếu có
+(function migrateOldConfigData() {
+  try {
+    if (fs.existsSync(OLD_CONFIG_DIR)) {
+      if (!fs.existsSync(CONFIG_DIR)) {
+        fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      }
+      const filesToMigrate = ['credentials.json', 'storage_state.json', '.env'];
+      for (const file of filesToMigrate) {
+        const oldFile = path.join(OLD_CONFIG_DIR, file);
+        const newFile = path.join(CONFIG_DIR, file);
+        if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+          fs.copyFileSync(oldFile, newFile);
+        }
+      }
+    }
+  } catch (e) {}
+})();
+
 const STORAGE_STATE_PATH = path.join(CONFIG_DIR, 'storage_state.json');
 const CREDENTIALS_PATH = path.join(CONFIG_DIR, 'credentials.json');
 const USER_ENV_PATH = path.join(CONFIG_DIR, '.env');
