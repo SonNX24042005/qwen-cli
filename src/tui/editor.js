@@ -16,6 +16,10 @@ function setIsWaitingResponse(val) {
   isWaitingResponse = val;
 }
 
+function getIsWaitingResponse() {
+  return isWaitingResponse;
+}
+
 let autocompleteVisible = false;
 let autocompleteOptions = [];
 let autocompleteSelectedIdx = 0;
@@ -934,6 +938,7 @@ module.exports = {
   renderUI,
   setupTerminalInput,
   setIsWaitingResponse,
+  isWaitingResponse: getIsWaitingResponse,
   showHistorySelection,
   formatUserPromptBlock,
   setModelOptions,
