@@ -70,9 +70,11 @@ Renderer.prototype.list = function(body, ordered) {
 const BULLET_POINT = '* ';
 
 // Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal
+// Ghi đè Renderer.prototype.listitem để tự động wrap text cho list item theo chiều ngang terminal
 Renderer.prototype.listitem = function(item) {
+  if (!item) return '';
   if (typeof item !== 'object') {
-    return '\n' + BULLET_POINT + item;
+    return '\n' + BULLET_POINT + String(item);
   }
   
   let itemText = '';
@@ -82,13 +84,13 @@ Renderer.prototype.listitem = function(item) {
     const firstToken = item.tokens[0];
     const otherTokens = item.tokens.slice(1);
     
-    if (firstToken.tokens) {
+    if (firstToken.tokens && this.parser) {
       itemText = this.parser.parseInline(firstToken.tokens);
     } else {
       itemText = firstToken.text || '';
     }
     
-    if (otherTokens.length > 0) {
+    if (otherTokens.length > 0 && this.parser) {
       nestedBlocksHtml = this.parser.parse(otherTokens);
     }
   } else {
@@ -96,11 +98,11 @@ Renderer.prototype.listitem = function(item) {
   }
   
   if (item.task) {
-    const checkbox = this.checkbox({ checked: !!item.checked });
+    const checkbox = this.checkbox ? this.checkbox({ checked: !!item.checked }) : '[ ] ';
     itemText = checkbox + itemText;
   }
   
-  const width = this.o.width || 80;
+  const width = this.o ? (this.o.width || 80) : 80;
   const tabLen = this.tab ? this.tab.length : 4;
   const prefix = '* ';
   const prefixLen = prefix.length;
@@ -120,23 +122,28 @@ Renderer.prototype.listitem = function(item) {
     finalContent += '\n' + nestedBlocksHtml.trimEnd();
   }
   
-  const transform = (txt) => this.o.listitem(this.transform(txt));
+  const transform = (txt) => (this.o && this.o.listitem) ? this.o.listitem(this.transform(txt)) : txt;
   return '\n' + BULLET_POINT + transform(finalContent);
 };
 
 // Ghi đè Renderer.prototype.link
 Renderer.prototype.link = function(href, title, text) {
+  if (!href) return '';
   if (typeof href === 'object') {
     title = href.title;
-    text = this.parser.parseInline(href.tokens);
-    href = href.href;
+    text = (this.parser && href.tokens) ? this.parser.parseInline(href.tokens) : (href.text || '');
+    href = href.href || '';
   }
   
+  if (!href) return text || '';
+
   if (supportsHyperlinks.stdout) {
-    const linkText = text ? this.o.href(this.emoji(text)) : this.o.href(href);
-    return this.o.link(ansiEscapes.link(linkText, href.replace(/\+/g, '%20')));
+    const linkText = text ? (this.o && this.o.href ? this.o.href(this.emoji(text)) : text) : (this.o && this.o.href ? this.o.href(href) : href);
+    const formattedLink = ansiEscapes.link ? ansiEscapes.link(linkText, href.replace(/\+/g, '%20')) : linkText;
+    return (this.o && this.o.link) ? this.o.link(formattedLink) : formattedLink;
   } else {
-    return this.o.link(this.o.href(this.emoji(text || href)));
+    const linkContent = (this.o && this.o.href) ? this.o.href(this.emoji(text || href)) : (text || href);
+    return (this.o && this.o.link) ? this.o.link(linkContent) : linkContent;
   }
 };
 
@@ -170,7 +177,7 @@ function renderMarkdown(text, cols) {
 
   const originalText = extension.renderer.text;
   extension.renderer.text = function(token) {
-    if (token && typeof token === 'object' && token.tokens) {
+    if (token && typeof token === 'object' && token.tokens && this.parser) {
       return this.parser.parseInline(token.tokens);
     }
     return originalText.call(this, token);
@@ -187,11 +194,27 @@ function renderMarkdown(text, cols) {
 function replaceCitations(text, docs) {
   if (!text) return text;
 
+  // Bảo vệ khối code (fenced block ```...``` và inline `...`) tránh bị Regex đổi URL
+  const codeBlocks = [];
+  let placeholderIndex = 0;
+
+  let protectedText = text.replace(/```[\s\S]*?```/g, (match) => {
+    const placeholder = `__CODE_BLOCK_${placeholderIndex++}__`;
+    codeBlocks.push({ placeholder, content: match });
+    return placeholder;
+  });
+
+  protectedText = protectedText.replace(/`[^`\n]+`/g, (match) => {
+    const placeholder = `__CODE_BLOCK_${placeholderIndex++}__`;
+    codeBlocks.push({ placeholder, content: match });
+    return placeholder;
+  });
+
   const bibMap = {};
   const bibLineRegex = /^\s*\[(\d+)\]\s+(.+)$/gm;
   let match;
   bibLineRegex.lastIndex = 0;
-  while ((match = bibLineRegex.exec(text)) !== null) {
+  while ((match = bibLineRegex.exec(protectedText)) !== null) {
     const num = parseInt(match[1], 10);
     const content = match[2];
     const urlMatch = content.match(/(https?:\/\/[^\s\)\],"`]+)/);
@@ -213,7 +236,7 @@ function replaceCitations(text, docs) {
   }
 
   // Replace [[N]]
-  text = text.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
+  protectedText = protectedText.replace(/\[\[(\d+)\]\]/g, (match, numStr) => {
     const num = parseInt(numStr, 10);
     if (bibMap[num]) {
       return `[[${numStr}]](${bibMap[num].url})`;
@@ -227,7 +250,7 @@ function replaceCitations(text, docs) {
   });
 
   // Replace [N]
-  text = text.replace(/(?<!\w|\[)\[(\d+)\](?!\(|\[)/g, (match, numStr) => {
+  protectedText = protectedText.replace(/(?<!\w|\[)\[(\d+)\](?!\(|\[)/g, (match, numStr) => {
     const num = parseInt(numStr, 10);
     if (bibMap[num]) {
       return `[[${numStr}]](${bibMap[num].url})`;
@@ -241,7 +264,7 @@ function replaceCitations(text, docs) {
   });
 
   // Replace raw URLs
-  text = text.replace(/(?<!\(|\[)https?:\/\/[^\s\)\],"`]+/g, (url) => {
+  protectedText = protectedText.replace(/(?<!\(|\[)https?:\/\/[^\s\)\],"`]+/g, (url) => {
     let cleanUrl = url;
     if (cleanUrl.endsWith('.') || cleanUrl.endsWith(',')) {
       cleanUrl = cleanUrl.slice(0, -1);
@@ -257,7 +280,12 @@ function replaceCitations(text, docs) {
     return `[${domain}](${cleanUrl})`;
   });
 
-  return text;
+  // Phục lưu các khối code ban đầu
+  for (let i = codeBlocks.length - 1; i >= 0; i--) {
+    protectedText = protectedText.replace(codeBlocks[i].placeholder, codeBlocks[i].content);
+  }
+
+  return protectedText;
 }
 
 module.exports = {

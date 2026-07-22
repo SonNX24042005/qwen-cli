@@ -87,15 +87,71 @@ function setRenderUICallback(cb) {
 
 let lastMaxLinesCleared = 0;
 
+function wrapLineToCols(line, cols) {
+  if (!cols || cols <= 0) cols = 80;
+  const ansiRegex = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+  const clean = line.replace(ansiRegex, '');
+  if (clean.length <= cols) {
+    return [line];
+  }
+
+  const result = [];
+  let currentChunk = '';
+  let currentWidth = 0;
+  let activeAnsi = '';
+
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '\x1b') {
+      const match = line.slice(i).match(/^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/);
+      if (match) {
+        const ansiSeq = match[0];
+        currentChunk += ansiSeq;
+        if (ansiSeq === '\x1b[0m') {
+          activeAnsi = '';
+        } else {
+          activeAnsi += ansiSeq;
+        }
+        i += ansiSeq.length;
+        continue;
+      }
+    }
+
+    currentChunk += line[i];
+    currentWidth++;
+    i++;
+
+    if (currentWidth >= cols) {
+      if (activeAnsi) currentChunk += '\x1b[0m';
+      result.push(currentChunk);
+      currentChunk = activeAnsi;
+      currentWidth = 0;
+    }
+  }
+
+  if (currentWidth > 0 || currentChunk.replace(ansiRegex, '').length > 0) {
+    result.push(currentChunk);
+  }
+
+  return result.length > 0 ? result : [''];
+}
+
 // Hàm vẽ lại vùng cuộn dựa trên chiều cao terminal hiện tại và scrollOffset
 function refreshScrollRegion() {
   const rows = process.stdout.rows || 24;
+  const cols = process.stdout.columns || 80;
   const maxLines = Math.max(1, rows - statusBarHeight - promptLinesCount); // Chiều cao tối đa của vùng cuộn
 
-  const allLines = scrollContentBuffer.split('\n');
-  if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
-    allLines.pop();
+  const rawLines = scrollContentBuffer.split('\n');
+  if (rawLines.length > 0 && rawLines[rawLines.length - 1] === '') {
+    rawLines.pop();
   }
+
+  const allLines = [];
+  rawLines.forEach((line) => {
+    const wrapped = wrapLineToCols(line, cols);
+    allLines.push(...wrapped);
+  });
 
   // Giới hạn scrollOffset trong phạm vi hợp lệ
   const maxScroll = Math.max(0, allLines.length - maxLines);
@@ -124,6 +180,16 @@ function refreshScrollRegion() {
   process.stdout.write(`\x1b[${maxLines};1H\x1b[s`);
 }
 
+function capScrollBuffer() {
+  const maxBufferLines = 5000;
+  if (scrollContentBuffer.length > 500000) {
+    const lines = scrollContentBuffer.split('\n');
+    if (lines.length > maxBufferLines) {
+      scrollContentBuffer = lines.slice(lines.length - maxBufferLines).join('\n');
+    }
+  }
+}
+
 // Hàm in nội dung an toàn vào Vùng cuộn (Scroll Region)
 function printInScrollRegion(text) {
   if (hasThinkingSpinner && scrollContentBuffer.length > 0) {
@@ -136,6 +202,8 @@ function printInScrollRegion(text) {
     scrollContentBuffer += text;
   }
   
+  capScrollBuffer();
+
   if (scrollOffset === 0) {
     refreshScrollRegion();
   }

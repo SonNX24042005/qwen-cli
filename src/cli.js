@@ -40,6 +40,14 @@ function rebuildScrollBuffer() {
     }
   });
 
+  if (editor.isWaitingResponse()) {
+    if (sseState.hasShownAnswerLabel || sseState.currentResponseText) {
+      formattedHistory += `\n\x1b[1m\x1b[38;5;147m🤖 Qwen:\x1b[0m\n${sseState.currentResponseText}\n`;
+    } else if (sseState.hasShownThinkingLabel) {
+      formattedHistory += '\n\x1b[38;5;244m🧠 Đang suy nghĩ...\x1b[0m\n';
+    }
+  }
+
   screen.setScrollContentBuffer(formattedHistory);
   screen.refreshScrollRegion();
 }
@@ -48,6 +56,8 @@ let resolveDonePromise = null;
 let streamBuffer = '';
 let browserInitPromise = null;
 let isBrowserReady = false;
+
+let isSilentBatchPrompt = false;
 
 function waitForResponse() {
   return new Promise((resolve) => {
@@ -526,6 +536,7 @@ async function handleUserMessage(inputText) {
       screen.consoleLog(`[Hệ thống] Gửi thông tin nhóm ${chunkIndex}/${totalChunks} lên Qwen...`);
       
       try {
+        isSilentBatchPrompt = true;
         await driver.sendPrompt(silentPrompt);
         await waitForResponse();
       } catch (err) {
@@ -533,6 +544,8 @@ async function handleUserMessage(inputText) {
         editor.setIsWaitingResponse(false);
         editor.renderUI();
         return;
+      } finally {
+        isSilentBatchPrompt = false;
       }
     }
 
@@ -664,7 +677,7 @@ async function main() {
     }
     
     // Lưu câu trả lời của AI vào lịch sử và render lại sạch sẽ vùng cuộn
-    if (sseState.currentResponseText) {
+    if (sseState.currentResponseText && !isSilentBatchPrompt) {
       chatHistory.push({ role: 'assistant', content: sseState.currentResponseText, docs: sseState.webSearchInfo });
     }
     rebuildScrollBuffer();

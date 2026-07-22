@@ -177,7 +177,8 @@ function renderBoxedMenu(rows, promptLinesCount, statusBarHeight, items, selecte
   const menuLength = visibleItems.length;
 
   // 1. Draw Top Border
-  const topBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2);
+  let topBorderRow = terminalRows - statusBarHeight - (promptLinesCount - 1) - (menuLength + 2);
+  if (topBorderRow < 1) topBorderRow = 1;
   process.stdout.write(`\x1b[${topBorderRow};1H\x1b[K`);
   process.stdout.write(drawTopBorder(boxWidth, title));
 
@@ -630,6 +631,7 @@ function setupTerminalInput(onSendMessage, onResumeChat, onCancelPrompt) {
     if (key && key.ctrl && key.name === 'c') {
       screen.consoleLog('\nĐang thoát chương trình...');
       await screen.shutdownTUI();
+      return;
     }
 
     if (key && key.name === 'escape' && !modelSelectionVisible && !thinkingSelectionVisible && !historySelectionVisible && !autocompleteVisible) {
